@@ -12,6 +12,6 @@ echo Swagger UI Docs:  http://127.0.0.1:8000/docs
 echo.
 echo Press CTRL+C to stop the server.
 echo ========================================================
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 pause
 

@@ -15,5 +15,5 @@ ffmpeg -version | findstr /C:"ffmpeg version"
 echo.
 echo Press CTRL+C to stop the worker.
 echo ========================================================
-celery -A app.worker.celery_app worker --loglevel=info --pool=solo
+.\.venv\Scripts\python.exe -m celery -A app.worker.celery_app worker --loglevel=info --pool=solo
 pause

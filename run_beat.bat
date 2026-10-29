@@ -14,6 +14,6 @@ echo.
 echo Press CTRL+C to stop the scheduler.
 echo ========================================================
 if exist celerybeat-schedule* del /f /q celerybeat-schedule* 2>nul
-celery -A app.worker.celery_app beat --loglevel=info
+.\.venv\Scripts\python.exe -m celery -A app.worker.celery_app beat --loglevel=info
 pause
 
