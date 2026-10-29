@@ -1,0 +1,56 @@
+import re
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.models.job import JobStatus
+
+
+class CreateJobRequest(BaseModel):
+    """Payload for submitting a background download job."""
+
+    url: str = Field(..., description="Target video URL", max_length=2048)
+    format_id: str = Field(..., description="Target format selector", max_length=64)
+    audio_only: bool = Field(default=False, description="Convert/download as audio file")
+    quality_label: Optional[str] = Field(default=None, description="Display label (e.g. 720p)", max_length=64)
+    captcha_token: Optional[str] = Field(default=None, description="Turnstile CAPTCHA token if required")
+
+    @field_validator("format_id")
+    @classmethod
+    def sanitize_format_id(cls, v: str) -> str:
+        v = v.strip()
+        # Strictly allow alphanumeric characters, hyphens, underscores, and plus signs (for audio+video merging)
+        if not re.match(r"^[a-zA-Z0-9_\-\+]{1,64}$", v):
+            raise ValueError("format_id contains invalid characters.")
+        return v
+
+
+class JobStatusResponse(BaseModel):
+    """Real-time lifecycle and progress representation of a download job."""
+
+    job_id: UUID = Field(..., description="Unique job UUID")
+    status: JobStatus = Field(..., description="Current job status")
+    progress: Optional[float] = Field(default=None, description="Progress percentage (0.0 to 100.0)")
+    speed: Optional[str] = Field(default=None, description="Human-readable transfer speed")
+    eta: Optional[int] = Field(default=None, description="Seconds remaining")
+    file_size: Optional[int] = Field(default=None, description="Finalized size in bytes")
+    download_url: Optional[str] = Field(default=None, description="Signed download URL when completed")
+    created_at: datetime = Field(..., description="Job submission timestamp")
+    expires_at: Optional[datetime] = Field(default=None, description="File expiration timestamp")
+    error_code: Optional[str] = Field(default=None, description="Machine-readable error identifier on failure")
+    error_message: Optional[str] = Field(default=None, description="User-friendly error explanation")
+
+
+class ProgressEvent(BaseModel):
+    """Lightweight event emitted via Server-Sent Events (SSE)."""
+
+    job_id: UUID
+    status: JobStatus
+    progress: float
+    speed: Optional[str] = None
+    eta: Optional[int] = None
+    download_url: Optional[str] = None
+    error_message: Optional[str] = None
+

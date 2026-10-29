@@ -1,0 +1,156 @@
+version: "3.9"
+
+services:
+  # Edge Reverse Proxy & TLS Terminator
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: anystream_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+      - web
+    networks:
+      - public_net
+      - internal_net
+    restart: unless-stopped
+
+  # FastAPI API Control Plane
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: anystream_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://anystream_user:secret_pg_pass@postgres:5432/anystream_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - IP_HASH_SALT=${IP_HASH_SALT}
+    volumes:
+      - temp_storage:/storage/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  # Sandboxed Asynchronous Media Worker
+  worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: anystream_worker
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=3 -Q media_downloads
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://anystream_user:secret_pg_pass@postgres:5432/anystream_db
+      - DATABASE_SYNC_URL=postgresql://anystream_user:secret_pg_pass@postgres:5432/anystream_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - temp_storage:/storage/tmp
+    # Resource Sandbox Constraints
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512M,mode=1777
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  # Automated File Eviction / Janitor Daemon
+  janitor:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: anystream_janitor
+    command: python -m app.services.cleaner
+    environment:
+      - DATABASE_SYNC_URL=postgresql://anystream_user:secret_pg_pass@postgres:5432/anystream_db
+      - STORAGE_DIR=/storage/tmp
+      - JOB_EXPIRY_MINUTES=20
+    volumes:
+      - temp_storage:/storage/tmp
+    depends_on:
+      - postgres
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  # Web Frontend (Next.js)
+  web:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: anystream_web
+    environment:
+      - NEXT_PUBLIC_API_URL=https://api.anystream.local
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  # Datastores
+  postgres:
+    image: postgres:16-alpine
+    container_name: anystream_postgres
+    environment:
+      POSTGRES_USER: anystream_user
+      POSTGRES_PASSWORD: secret_pg_pass
+      POSTGRES_DB: anystream_db
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anystream_user -d anystream_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: anystream_redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+networks:
+  public_net:
+    driver: bridge
+  internal_net:
+    driver: bridge
+    internal: false # Requires internet for worker to download external media
+
+volumes:
+  pg_data:
+  redis_data:
+  temp_storage:
+

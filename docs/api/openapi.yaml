@@ -1,0 +1,632 @@
+openapi: 3.1.0
+info:
+  title: AnyStream Video Platform API
+  summary: High-performance, secure backend API for URL video extraction and downloading.
+  description: |
+    The AnyStream API powers both the web frontend (Next.js) and the mobile application (Flutter).
+    It provides secure URL metadata inspection, format resolution, background asynchronous
+    media processing with Celery/Redis, Server-Sent Events (SSE) for progress streaming,
+    and signed, expiring media downloads.
+  version: 1.0.0
+  contact:
+    name: Platform Security & Engineering Team
+    email: security@anystream.local
+  license:
+    name: Proprietary / Authorized Use Only
+
+servers:
+  - url: http://localhost:8000
+    description: Local Development Server
+  - url: https://api.anystream.local
+    description: Production Environment
+
+tags:
+  - name: Extraction
+    description: Pre-download URL validation, SSRF filtering, and format metadata extraction.
+  - name: Jobs
+    description: Asynchronous media download job lifecycle management and progress streaming.
+  - name: Downloads
+    description: Secure, signed streaming of processed media files.
+  - name: Legal & Compliance
+    description: DMCA takedown notices, URL blocklisting, and abuse management.
+  - name: System
+    description: Health monitoring and service diagnostics.
+
+paths:
+  /api/v1/extract:
+    post:
+      tags:
+        - Extraction
+      summary: Extract media metadata and available formats
+      description: |
+        Inspects a public video URL, executes SSRF checks, validates against legal takedown lists,
+        and returns sanitized media details (title, thumbnail, duration) alongside structured
+        video/audio formats.
+      operationId: extractMediaInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UrlExtractRequest'
+      responses:
+        '200':
+          description: Media metadata extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaInfoResponse'
+        '400':
+          description: Invalid URL, unsupported platform, private video, or SSRF policy violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Video is DRM protected or paywalled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded or CAPTCHA required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '451':
+          description: Content unavailable due to legal or DMCA takedown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs:
+    post:
+      tags:
+        - Jobs
+      summary: Queue a media download job
+      description: |
+        Enqueues an asynchronous download task for the specified URL and format.
+        Returns a job ID that can be used for polling or Server-Sent Events (SSE).
+      operationId: createDownloadJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '202':
+          description: Job accepted and enqueued in worker pool
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '400':
+          description: Invalid request parameters or incompatible format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Active download limit reached for IP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Worker queue is saturated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs/{job_id}:
+    get:
+      tags:
+        - Jobs
+      summary: Get download job status and progress
+      description: Polling endpoint returning current state, percentage, download speed, and ETA.
+      operationId: getJobStatus
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the job
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          description: Job not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs/{job_id}/stream:
+    get:
+      tags:
+        - Jobs
+      summary: Stream real-time job progress (Server-Sent Events)
+      description: Subscribes to real-time progress events for the given job via HTTP SSE.
+      operationId: streamJobProgress
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the job
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Real-time event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: progress
+                  data: {"percentage": 45.2, "speed": "2.4MB/s", "eta": 15}
+
+                  event: completed
+                  data: {"status": "COMPLETED", "download_url": "/api/v1/downloads/abc123token"}
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs/{job_id}/cancel:
+    post:
+      tags:
+        - Jobs
+      summary: Cancel a running or queued job
+      description: Terminates worker execution and purges partial disk fragments.
+      operationId: cancelJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the job
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '400':
+          description: Job cannot be cancelled in its current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/downloads/{token}:
+    get:
+      tags:
+        - Downloads
+      summary: Download finalized media file
+      description: |
+        Streams the finalized file using a cryptographically signed expiring token.
+        Supports HTTP Range requests for resuming broken or paused downloads.
+      operationId: downloadMediaFile
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: Signed, time-bounded token referencing the stored media file
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          description: HTTP byte range header for resume support
+          schema:
+            type: string
+            example: bytes=0-1048575
+      responses:
+        '200':
+          description: Full media file stream
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="sample_video_720p.mp4"; filename*=UTF-8''sample_video_720p.mp4
+            Content-Type:
+              schema:
+                type: string
+                example: video/mp4
+            Content-Length:
+              schema:
+                type: integer
+                example: 45892010
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Partial content chunk (resumed download)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Invalid, tampered, or expired download token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: File has expired or was removed by janitor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/takedown:
+    post:
+      tags:
+        - Legal & Compliance
+      summary: Submit a DMCA or legal copyright takedown notice
+      description: |
+        Allows rights holders to submit takedown notices. Immediately flags the target URL
+        for blocking pending administrative review.
+      operationId: submitTakedown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TakedownRequest'
+      responses:
+        '201':
+          description: Takedown notice registered and queued for verification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TakedownResponse'
+        '400':
+          description: Missing mandatory legal declaration or invalid URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/health:
+    get:
+      tags:
+        - System
+      summary: Platform health and yt-dlp sanity check
+      description: Checks PostgreSQL connection, Redis queue latency, and yt-dlp version freshness.
+      operationId: checkHealth
+      responses:
+        '200':
+          description: All subsystems operational
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more dependent subsystems degraded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    UrlExtractRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Direct public URL of the target video
+          example: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+        captcha_token:
+          type: string
+          nullable: true
+          description: Optional Cloudflare Turnstile token for high-frequency clients
+          example: 0.XXXXXXXXXXXXXX
+
+    FormatOption:
+      type: object
+      required:
+        - format_id
+        - format_note
+        - ext
+        - is_audio_only
+      properties:
+        format_id:
+          type: string
+          description: Unique format identifier for yt-dlp
+          example: "22"
+        resolution:
+          type: string
+          nullable: true
+          description: Video resolution label
+          example: "1080p"
+        height:
+          type: integer
+          nullable: true
+          description: Video vertical pixel count
+          example: 1080
+        fps:
+          type: number
+          nullable: true
+          description: Frames per second
+          example: 60
+        ext:
+          type: string
+          description: Container extension (mp4, webm, m4a, mp3)
+          example: "mp4"
+        format_note:
+          type: string
+          description: Human-readable quality tag
+          example: "1080p60 (Full HD)"
+        filesize_approx:
+          type: integer
+          nullable: true
+          description: Estimated file size in bytes
+          example: 154800000
+        is_audio_only:
+          type: boolean
+          description: Flag indicating audio-only stream
+          example: false
+        abr:
+          type: number
+          nullable: true
+          description: Audio bitrate in kbps
+          example: 160
+
+    MediaInfoResponse:
+      type: object
+      required:
+        - id
+        - title
+        - url
+        - thumbnail_url
+        - duration
+        - formats
+      properties:
+        id:
+          type: string
+          description: Upstream platform media identifier
+          example: dQw4w9WgXcQ
+        title:
+          type: string
+          description: Sanitized video title
+          example: Rick Astley - Never Gonna Give You Up (Official Music Video)
+        url:
+          type: string
+          format: uri
+          description: Canonical URL
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Public thumbnail image URL
+          example: https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg
+        duration:
+          type: integer
+          description: Video length in seconds
+          example: 213
+        uploader:
+          type: string
+          nullable: true
+          description: Content creator or channel title
+          example: Rick Astley
+        is_live:
+          type: boolean
+          description: Indicates if video is an ongoing livestream
+          example: false
+        formats:
+          type: array
+          items:
+            $ref: '#/components/schemas/FormatOption'
+
+    CreateJobRequest:
+      type: object
+      required:
+        - url
+        - format_id
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Validated video URL
+        format_id:
+          type: string
+          pattern: '^[a-zA-Z0-9_\-\+]{1,64}$'
+          description: Format ID chosen from the extraction response
+          example: "137+140"
+        audio_only:
+          type: boolean
+          default: false
+          description: Whether to extract audio only (e.g. mp3/m4a conversion)
+        quality_label:
+          type: string
+          nullable: true
+          description: User-selected display label (e.g. "1080p")
+        captcha_token:
+          type: string
+          nullable: true
+          description: Cloudflare Turnstile token if triggered
+
+    JobStatusResponse:
+      type: object
+      required:
+        - job_id
+        - status
+        - created_at
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Unique job identifier
+        status:
+          type: string
+          enum: [QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED, EXPIRED]
+          description: Execution stage of the download job
+        progress:
+          type: number
+          format: float
+          nullable: true
+          description: Download progress percentage (0.0 to 100.0)
+          example: 68.5
+        speed:
+          type: string
+          nullable: true
+          description: Human-readable download transfer speed
+          example: "4.8 MB/s"
+        eta:
+          type: integer
+          nullable: true
+          description: Estimated seconds remaining
+          example: 12
+        file_size:
+          type: integer
+          nullable: true
+          description: Finalized file size in bytes
+          example: 84902120
+        download_url:
+          type: string
+          nullable: true
+          description: Expiring signed download path (when status is COMPLETED)
+          example: "/api/v1/downloads/eyJhbGciOiJIUzI1NiIsInR5c..."
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when temporary file will be pruned
+        error_code:
+          type: string
+          nullable: true
+          description: Machine-readable error code if status is FAILED
+          example: "UPSTREAM_GEOBLOCKED"
+        error_message:
+          type: string
+          nullable: true
+          description: User-friendly explanation of failure
+
+    TakedownRequest:
+      type: object
+      required:
+        - requester_name
+        - requester_email
+        - copyrighted_work_url
+        - infringing_url
+        - declaration_truth
+      properties:
+        requester_name:
+          type: string
+          description: Full legal name of rights holder or agent
+          example: "Jane Doe"
+        requester_email:
+          type: string
+          format: email
+          description: Official contact email
+          example: "legal@copyright-holder.com"
+        copyrighted_work_url:
+          type: string
+          format: uri
+          description: Link to original authorized work or proof of copyright
+        infringing_url:
+          type: string
+          format: uri
+          description: Target URL on our platform to be blocked
+        statement:
+          type: string
+          nullable: true
+          description: Narrative explanation of the infringement
+        declaration_truth:
+          type: boolean
+          description: Legal affirmation of good faith and perjury under penalty
+
+    TakedownResponse:
+      type: object
+      required:
+        - case_id
+        - status
+        - message
+        - created_at
+      properties:
+        case_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [RECEIVED, BLOCKED_PENDING_REVIEW, APPROVED, REJECTED]
+        message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - ytdlp_version
+        - database
+        - redis
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+          example: "1.0.0"
+        ytdlp_version:
+          type: string
+          example: "2024.10.22"
+        database:
+          type: boolean
+          example: true
+        redis:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Structured machine-readable error token
+          example: "SSRF_FORBIDDEN_DESTINATION"
+        message:
+          type: string
+          description: Localized, sanitized human-friendly message
+          example: "The requested URL points to a restricted or private network destination."
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+
