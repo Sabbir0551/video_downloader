@@ -32,6 +32,26 @@ def hash_ip(ip_address: str, salt: str = "") -> str:
     return mac.hexdigest()[:32]
 
 
+def sanitize_display_title(title: str, max_length: int = 250) -> str:
+    """
+    Sanitizes human-readable display titles:
+    - Normalizes unicode (NFKC).
+    - Strips non-printable and control characters.
+    - Preserves normal spaces and international scripts (Bangla, English, etc.).
+    - Constrains maximum length.
+    """
+    if not title:
+        return "Untitled Media"
+    title = unicodedata.normalize("NFKC", title)
+    title = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    if not title:
+        return "Untitled Media"
+    if len(title) > max_length:
+        title = title[:max_length].strip()
+    return title
+
+
 def sanitize_filename(title: str, ext: str, max_length: int = 120) -> str:
     """
     Sanitizes user/video titles for safe HTTP Content-Disposition headers.

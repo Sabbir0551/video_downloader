@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
+from typing import Any, List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class UrlExtractRequest(BaseModel):
@@ -11,6 +11,21 @@ class UrlExtractRequest(BaseModel):
         description="Optional Cloudflare Turnstile token for high-frequency clients",
         max_length=1024,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def preprocess_input(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"url": data.strip()}
+        if isinstance(data, dict):
+            # If standard "url" field is provided
+            if "url" in data and data["url"]:
+                return data
+            # Check if user accidentally pasted the URL as the JSON key or body
+            for k, v in data.items():
+                if isinstance(k, str) and k.strip().startswith(("http://", "https://")):
+                    return {"url": k.strip(), "captcha_token": data.get("captcha_token")}
+        return data
 
     @field_validator("url")
     @classmethod
