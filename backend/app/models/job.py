@@ -43,7 +43,7 @@ class DownloadJob(Base, TimestampMixin):
 
     # Execution status & live metrics
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus, name="job_status_enum", create_type=False),
+        Enum(JobStatus, name="job_status_enum", create_type=True),
         default=JobStatus.QUEUED,
         index=True,
         nullable=False,

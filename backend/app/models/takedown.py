@@ -39,7 +39,7 @@ class TakedownRecord(Base, TimestampMixin):
     statement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     status: Mapped[TakedownStatus] = mapped_column(
-        Enum(TakedownStatus, name="takedown_status_enum", create_type=False),
+        Enum(TakedownStatus, name="takedown_status_enum", create_type=True),
         default=TakedownStatus.BLOCKED_PENDING_REVIEW,
         index=True,
         nullable=False,
