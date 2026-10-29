@@ -13,5 +13,7 @@ echo Schedule: Every 5 minutes (300 seconds).
 echo.
 echo Press CTRL+C to stop the scheduler.
 echo ========================================================
+if exist celerybeat-schedule* del /f /q celerybeat-schedule* 2>nul
 celery -A app.worker.celery_app beat --loglevel=info
 pause
+

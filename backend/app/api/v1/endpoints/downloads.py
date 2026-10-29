@@ -276,7 +276,7 @@ async def get_download_status(
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     """Retrieves real-time job state and metrics. Accepts UUID or media URL."""
-    clean_id_str = str(job_id).strip()
+    clean_id_str = urllib.parse.unquote(str(job_id)).strip()
     job = None
 
     # 1. If user entered a video URL instead of a UUID, look up or auto-enqueue
