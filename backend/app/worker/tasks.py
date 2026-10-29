@@ -115,6 +115,10 @@ def download_media_task(
 
     # 5. Build yt-dlp configuration
     clean_format_id = format_id.replace("+mp3", "")
+    if is_audio_only and clean_format_id in ["best", ""]:
+        clean_format_id = "bestaudio/best"
+    elif not is_audio_only and clean_format_id in ["best", ""]:
+        clean_format_id = "bestvideo+bestaudio/best"
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
