@@ -96,7 +96,12 @@ def download_media_task(
             else:
                 speed_str = f"{speed_bytes} B/s"
 
-            eta_sec = d.get("eta")
+            eta_sec = None
+            if d.get("eta") is not None:
+                try:
+                    eta_sec = int(round(float(d["eta"])))
+                except (ValueError, TypeError):
+                    eta_sec = None
 
             progress_data = {
                 "job_id": job_id,

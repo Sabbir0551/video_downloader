@@ -42,6 +42,16 @@ class JobStatusResponse(BaseModel):
     error_code: Optional[str] = Field(default=None, description="Machine-readable error identifier on failure")
     error_message: Optional[str] = Field(default=None, description="User-friendly error explanation")
 
+    @field_validator("eta", mode="before")
+    @classmethod
+    def parse_eta(cls, v):
+        if v is not None:
+            try:
+                return int(round(float(v)))
+            except (ValueError, TypeError):
+                return None
+        return None
+
 
 class ProgressEvent(BaseModel):
     """Lightweight event emitted via Server-Sent Events (SSE)."""

@@ -294,7 +294,14 @@ async def get_download_status(
                 cached_data = json.loads(cached_progress_str)
                 progress = float(cached_data.get("progress") or progress)
                 speed = cached_data.get("speed") or speed
-                eta = cached_data.get("eta") or eta
+                eta_val = cached_data.get("eta")
+                if eta_val is not None:
+                    try:
+                        eta = int(round(float(eta_val)))
+                    except (ValueError, TypeError):
+                        eta = None
+                else:
+                    eta = job.eta
         except Exception:
             pass
 
