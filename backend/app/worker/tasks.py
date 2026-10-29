@@ -211,3 +211,4 @@ def download_media_task(
         }
         update_progress_in_redis(job_id, failure_data)
         return failure_data
+

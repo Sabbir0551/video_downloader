@@ -228,3 +228,4 @@ def test_celery_task_worker_execution(tmp_path):
         dummy_file = os.path.join(settings.STORAGE_DIR, f"{test_job_id}.mp4")
         if os.path.exists(dummy_file):
             os.remove(dummy_file)
+

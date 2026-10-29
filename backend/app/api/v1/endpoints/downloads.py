@@ -221,3 +221,4 @@ async def create_job_alias(
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     return await create_download_job(request, payload, db)
+
