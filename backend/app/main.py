@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.endpoints.health import router as root_health_router
 from app.api.v1.router import api_v1_router
+from app.api.web import router as web_router
 from app.core.config import settings
 from app.core.errors import AppError
 from app.db.session import init_db
@@ -103,7 +104,8 @@ def create_application() -> FastAPI:
             },
         )
 
-    # 6. Mount Health at Root Level (/health) and API v1 Router (/api/v1)
+    # 6. Mount Web UI, Health, and API v1 Router
+    app.include_router(web_router, prefix="")
     app.include_router(root_health_router, prefix="", tags=["System"])
     app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 

@@ -31,17 +31,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # Content Security Policy
         path = request.url.path
-        if path.startswith(("/docs", "/redoc", "/openapi.json")):
-            # Permit Swagger UI / ReDoc CDN assets & inline initialization scripts
+        if path == "/" or path.startswith(("/docs", "/redoc", "/openapi.json")):
+            # Permit Web UI & Swagger UI assets, inline scripts/styles, API fetch, and video thumbnails
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
+                "default-src 'self' 'unsafe-inline'; "
                 "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "img-src 'self' data: https:; "
+                "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:* http://127.0.0.1:* ws: https:; "
                 "frame-ancestors 'none';"
             )
         else:
-            # Strict API baseline
+            # API baseline
             response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
 
         # HSTS (Strict-Transport-Security) for production environments

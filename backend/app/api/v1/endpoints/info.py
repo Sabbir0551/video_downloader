@@ -89,7 +89,7 @@ async def get_media_info(request: Request, payload: UrlExtractRequest) -> MediaI
     return info_response
 
 
-# Mount alias endpoint /extract to maintain full OpenAPI contract backwards-compatibility
+# Mount alias endpoints to maintain backwards-compatibility
 @router.post(
     "/extract",
     response_model=MediaInfoResponse,
@@ -97,5 +97,15 @@ async def get_media_info(request: Request, payload: UrlExtractRequest) -> MediaI
     include_in_schema=False,
 )
 async def extract_media_alias(request: Request, payload: UrlExtractRequest) -> MediaInfoResponse:
+    return await get_media_info(request, payload)
+
+
+@router.post(
+    "/extract/info",
+    response_model=MediaInfoResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def extract_media_info_alias(request: Request, payload: UrlExtractRequest) -> MediaInfoResponse:
     return await get_media_info(request, payload)
 
