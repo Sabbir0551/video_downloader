@@ -252,7 +252,7 @@ async def create_download_job(
     response_model=JobStatusResponse,
     status_code=status.HTTP_200_OK,
     summary="Get download job status and progress",
-    description="Returns current status, progress percentage, ETA, and download URL when completed.",
+    description="Returns current status, progress percentage, ETA, and download URL when completed. Accepts job UUID or video URL.",
     responses={
         200: {"model": JobStatusResponse, "description": "Current job status"},
         404: {
@@ -271,13 +271,38 @@ async def create_download_job(
     },
 )
 async def get_download_status(
-    job_id: uuid.UUID,
+    job_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
-    """Retrieves real-time job state and metrics."""
-    stmt = select(DownloadJob).where(DownloadJob.id == job_id)
-    res = await db.execute(stmt)
-    job = res.scalars().first()
+    """Retrieves real-time job state and metrics. Accepts UUID or media URL."""
+    clean_id_str = str(job_id).strip()
+    job = None
+
+    # 1. If user entered a video URL instead of a UUID, look up or auto-enqueue
+    if clean_id_str.startswith(("http://", "https://")):
+        clean_url, _ = validate_url_security(clean_id_str)
+        url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
+        stmt = (
+            select(DownloadJob)
+            .where(DownloadJob.url_hash == url_hash)
+            .order_by(DownloadJob.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        job = res.scalars().first()
+
+        # If no job exists yet for this URL, auto-enqueue it!
+        if not job:
+            return await create_download_job(request, CreateJobRequest(url=clean_url), db)
+    else:
+        try:
+            target_uuid = uuid.UUID(clean_id_str)
+        except ValueError:
+            raise JobNotFoundError("Invalid job ID format. Expected a valid UUID or video URL.")
+
+        stmt = select(DownloadJob).where(DownloadJob.id == target_uuid)
+        res = await db.execute(stmt)
+        job = res.scalars().first()
 
     if not job:
         raise JobNotFoundError("Download job not found or has expired.")
@@ -289,7 +314,7 @@ async def get_download_status(
 
     if job.status == JobStatus.PROCESSING and redis_client:
         try:
-            cached_progress_str = redis_client.get(f"job:{job_id}:progress")
+            cached_progress_str = redis_client.get(f"job:{job.id}:progress")
             if cached_progress_str:
                 cached_data = json.loads(cached_progress_str)
                 progress = float(cached_data.get("progress") or progress)
