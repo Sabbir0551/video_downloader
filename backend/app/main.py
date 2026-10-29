@@ -54,7 +54,7 @@ def create_application() -> FastAPI:
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if settings.ENVIRONMENT != "production" else None,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         max_age=600,
     )

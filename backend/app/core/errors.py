@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 from fastapi import HTTPException, status
+from app.core.config import settings
 
 
 class AppError(HTTPException):
@@ -102,5 +103,15 @@ class RateLimitExceededError(AppError):
             error_code="RATE_LIMIT_EXCEEDED",
             message=message,
             details=details,
+        )
+
+
+class GlobalConcurrencyExceededError(AppError):
+    def __init__(self, message: str = "System download capacity is currently full. Please try again shortly.", details: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            error_code="GLOBAL_CONCURRENCY_EXCEEDED",
+            message=message,
+            details=details if details is not None else {"global_concurrency_cap": settings.GLOBAL_CONCURRENCY_CAP},
         )
 

@@ -33,15 +33,80 @@ tags:
     description: Health monitoring and service diagnostics.
 
 paths:
+  /api/v1/info:
+    post:
+      tags:
+        - Extraction
+      summary: Inspect media URL and list formats
+      description: |
+        Inspects a public video URL, executes SSRF checks, validates against legal takedown lists,
+        enforces rate limits (15 req/min per IP hash), and returns sanitized media details
+        alongside structured video/audio formats.
+      operationId: getMediaInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UrlExtractRequest'
+      responses:
+        '200':
+          description: Media metadata extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaInfoResponse'
+        '400':
+          description: Invalid URL, private network destination, or unsupported host
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SSRF_DESTINATION_FORBIDDEN
+                message: Access to host '127.0.0.1' is denied by security policy.
+                details:
+                  hostname: "127.0.0.1"
+        '403':
+          description: Video is DRM protected or paywalled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: MEDIA_DRM_PROTECTED
+                message: This media stream is DRM-protected and cannot be downloaded.
+                details: {}
+        '429':
+          description: Rate limit exceeded for client IP (15 req/min) or upstream provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: RATE_LIMIT_EXCEEDED
+                message: Too many requests to /info. Rate limit is 15 per minute.
+                details:
+                  limit: 15
+                  window_seconds: 60
+        '451':
+          description: Content unavailable due to legal or DMCA takedown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: LEGAL_TAKEDOWN_BLOCK
+                message: This content has been blocked due to a copyright or legal notice.
+                details: {}
+
   /api/v1/extract:
     post:
       tags:
         - Extraction
-      summary: Extract media metadata and available formats
+      summary: Extract media metadata and available formats (Alias)
       description: |
-        Inspects a public video URL, executes SSRF checks, validates against legal takedown lists,
-        and returns sanitized media details (title, thumbnail, duration) alongside structured
-        video/audio formats.
+        Alias for /api/v1/info maintaining backwards compatibility.
       operationId: extractMediaInfo
       requestBody:
         required: true
@@ -163,11 +228,156 @@ paths:
                 message: This content has been blocked due to a copyright or legal notice.
                 details: {}
         '503':
-          description: Worker queue is saturated
+          description: Global server concurrency cap reached (system capacity full)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: GLOBAL_CONCURRENCY_EXCEEDED
+                message: System download capacity is currently full. Please try again shortly.
+                details:
+                  global_concurrency_cap: 20
+
+  /api/v1/downloads/{job_id}:
+    get:
+      tags:
+        - Downloads
+      summary: Get download job status and progress
+      description: Returns current status, progress percentage, ETA, and download URL when completed. Overlays live Redis progress.
+      operationId: getDownloadJobStatus
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the download job
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          description: Job not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: JOB_NOT_FOUND
+                message: Download job not found or has expired.
+                details: {}
+    delete:
+      tags:
+        - Downloads
+      summary: Cancel running job and delete files
+      description: Terminates worker task execution and purges partial disk fragments.
+      operationId: cancelDownloadJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the download job
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: JOB_NOT_FOUND
+                message: Download job not found.
+                details: {}
+
+  /api/v1/downloads/{job_id}/file:
+    get:
+      tags:
+        - Downloads
+      summary: Download finalized media file
+      description: |
+        Streams the finalized file using a cryptographically signed expiring token.
+        Supports HTTP Range requests for resuming broken or paused downloads.
+        Provides RFC 5987 / RFC 6266 safe Content-Disposition filename.
+      operationId: downloadFinalizedMediaFile
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: UUIDv4 of the completed job
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: query
+          required: true
+          description: Signed, time-bounded HMAC token
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          description: HTTP byte range header for resume support
+          schema:
+            type: string
+            example: bytes=0-1048575
+      responses:
+        '200':
+          description: Full media file stream
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="sample_video_720p.mp4"; filename*=UTF-8''sample_video_720p.mp4
+            Content-Type:
+              schema:
+                type: string
+                example: video/mp4
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Partial content chunk (resumed download)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Invalid, tampered, or expired download token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: DOWNLOAD_TOKEN_INVALID
+                message: Download token has expired or signature is invalid.
+                details: {}
+        '404':
+          description: File has expired or was removed by janitor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: JOB_NOT_FOUND
+                message: The requested file has expired or was pruned by the cleanup janitor.
+                details: {}
 
   /api/v1/jobs/{job_id}:
     get:

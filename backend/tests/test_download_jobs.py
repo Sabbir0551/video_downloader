@@ -17,12 +17,6 @@ from app.models.takedown import TakedownRecord, TakedownStatus
 from app.schemas.extract import FormatOption, MediaInfoResponse
 
 
-@pytest.fixture(autouse=True)
-def setup_test_db():
-    """Ensures database tables are initialized for testing."""
-    with get_sync_db() as db:
-        Base.metadata.create_all(bind=db.bind)
-    yield
 
 
 @pytest.fixture

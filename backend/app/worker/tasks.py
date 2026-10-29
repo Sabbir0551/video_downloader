@@ -165,12 +165,13 @@ def download_media_task(
                 expiry_seconds=settings.JOB_EXPIRY_MINUTES * 60,
             )
 
+            download_url = f"/api/v1/downloads/{job_id}/file?token={token}"
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
             job.file_path = final_path
             job.file_size = actual_size
             job.file_ext = file_ext
-            job.download_url = f"/api/v1/downloads/{token}"
+            job.download_url = download_url
             db.commit()
 
         completion_data = {
@@ -178,7 +179,7 @@ def download_media_task(
             "status": "COMPLETED",
             "progress": 100.0,
             "file_size": actual_size,
-            "download_url": f"/api/v1/downloads/{token}",
+            "download_url": download_url,
         }
         update_progress_in_redis(job_id, completion_data)
         logger.info("Download completed successfully for Job [%s] - Size: %d bytes", job_id, actual_size)
@@ -211,4 +212,64 @@ def download_media_task(
         }
         update_progress_in_redis(job_id, failure_data)
         return failure_data
+
+
+@celery_app.task(name="app.worker.tasks.clean_expired_downloads_task")
+def clean_expired_downloads_task() -> Dict[str, Any]:
+    """
+    Periodic Celery Beat janitor task running every 5 minutes.
+    - Evicts physical files for jobs past expires_at (30 minutes).
+    - Deletes failed or cancelled download fragments.
+    - Marks database job status as EXPIRED.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
+    now = datetime.now(timezone.utc)
+    evicted_files = 0
+    expired_jobs_count = 0
+
+    with get_sync_db() as db:
+        # Find jobs past their expiration timestamp that are not yet marked EXPIRED
+        expired_stmt = select(DownloadJob).where(
+            DownloadJob.expires_at <= now,
+            DownloadJob.status != JobStatus.EXPIRED,
+        )
+        expired_jobs = db.execute(expired_stmt).scalars().all()
+
+        for job in expired_jobs:
+            # Delete file on disk if exists
+            if job.file_path and os.path.exists(job.file_path):
+                try:
+                    os.remove(job.file_path)
+                    evicted_files += 1
+                except OSError as e:
+                    logger.warning("Error deleting expired file %s: %s", job.file_path, str(e))
+
+            # Delete any leftover partial fragments for this job_id
+            for partial in glob.glob(os.path.join(settings.STORAGE_DIR, f"{job.id}*")):
+                try:
+                    os.remove(partial)
+                    evicted_files += 1
+                except OSError:
+                    pass
+
+            job.status = JobStatus.EXPIRED
+            expired_jobs_count += 1
+
+        db.commit()
+
+    # Clean orphaned files on disk older than 35 minutes
+    cutoff_time = time.time() - (35 * 60)
+    for disk_file in glob.glob(os.path.join(settings.STORAGE_DIR, "*")):
+        if os.path.isfile(disk_file):
+            try:
+                if os.path.getmtime(disk_file) < cutoff_time:
+                    os.remove(disk_file)
+                    evicted_files += 1
+            except OSError:
+                pass
+
+    logger.info("Celery Beat Janitor: %d files evicted, %d jobs transitioned to EXPIRED.", evicted_files, expired_jobs_count)
+    return {"evicted_files": evicted_files, "expired_jobs": expired_jobs_count}
 

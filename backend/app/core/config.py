@@ -35,10 +35,11 @@ class Settings(BaseSettings):
     STORAGE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../storage/tmp"))
     MAX_FILE_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
     MAX_VIDEO_DURATION_SECONDS: int = 10800  # 3 hours
-    JOB_EXPIRY_MINUTES: int = 25  # Automatic file eviction window
+    JOB_EXPIRY_MINUTES: int = 30  # Automatic file eviction window (30 minutes)
     FILE_CLEANUP_INTERVAL_SECONDS: int = 300  # 5 minutes
 
     # Rate Limiting & Abuse Prevention
+    GLOBAL_CONCURRENCY_CAP: int = 20
     MAX_CONCURRENT_JOBS_PER_IP: int = 2
     RATE_LIMIT_EXTRACT_PER_MINUTE: int = 15
     RATE_LIMIT_JOB_PER_MINUTE: int = 5

@@ -41,6 +41,11 @@ htmlcov/
 .env.*
 !.env.example
 
+# SQLite & Local DBs
+*.db
+*.sqlite*
+celerybeat-schedule*
+
 # Temporary Storage & Media
 storage/tmp/*
 !storage/tmp/.gitkeep

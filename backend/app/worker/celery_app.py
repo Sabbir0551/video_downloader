@@ -26,6 +26,13 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     result_expires=1800,       # 30 minutes
+    # Periodic Celery Beat Schedule (Janitor file cleanup)
+    beat_schedule={
+        "clean-expired-downloads-every-5-minutes": {
+            "task": "app.worker.tasks.clean_expired_downloads_task",
+            "schedule": settings.FILE_CLEANUP_INTERVAL_SECONDS,  # 300s (5 minutes)
+        },
+    },
 )
 
 # Auto-discover tasks from app.worker.tasks
