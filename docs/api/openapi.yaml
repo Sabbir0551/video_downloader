@@ -62,29 +62,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SSRF_DESTINATION_FORBIDDEN
+                message: Access to host '127.0.0.1' is denied by security policy.
+                details:
+                  hostname: "127.0.0.1"
         '403':
           description: Video is DRM protected or paywalled
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: MEDIA_DRM_PROTECTED
+                message: This media stream is DRM-protected and cannot be downloaded.
+                details: {}
         '429':
           description: Rate limit exceeded or CAPTCHA required
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: RATE_LIMIT_EXCEEDED
+                message: The upstream video provider is temporarily rate-limiting requests. Please try again later.
+                details: {}
         '451':
           description: Content unavailable due to legal or DMCA takedown
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: LEGAL_TAKEDOWN_BLOCK
+                message: This content has been blocked due to a copyright or legal notice.
+                details: {}
 
-  /api/v1/jobs:
+  /api/v1/downloads:
     post:
       tags:
-        - Jobs
+        - Downloads
       summary: Queue a media download job
       description: |
         Enqueues an asynchronous download task for the specified URL and format.
@@ -104,17 +121,47 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobStatusResponse'
         '400':
-          description: Invalid request parameters or incompatible format
+          description: Invalid request parameters, unsupported format, or SSRF violation
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SSRF_DESTINATION_FORBIDDEN
+                message: Access to host '127.0.0.1' is denied by security policy.
+                details:
+                  hostname: "127.0.0.1"
+        '403':
+          description: Video is DRM protected or paywalled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: MEDIA_DRM_PROTECTED
+                message: This media stream is DRM-protected and cannot be downloaded.
+                details: {}
         '429':
-          description: Active download limit reached for IP
+          description: Active download concurrency limit reached for IP
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: RATE_LIMIT_EXCEEDED
+                message: You already have maximum concurrent downloads in progress. Please wait for them to finish.
+                details:
+                  max_concurrent_jobs: 2
+        '451':
+          description: Content unavailable due to legal or DMCA takedown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: LEGAL_TAKEDOWN_BLOCK
+                message: This content has been blocked due to a copyright or legal notice.
+                details: {}
         '503':
           description: Worker queue is saturated
           content:

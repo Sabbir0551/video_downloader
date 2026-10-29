@@ -11,6 +11,7 @@ from app.api.v1.endpoints.health import router as root_health_router
 from app.api.v1.router import api_v1_router
 from app.core.config import settings
 from app.core.errors import AppError
+from app.db.session import init_db
 from app.middlewares.security_headers import SecurityHeadersMiddleware
 
 # Configure logging
@@ -25,6 +26,10 @@ logger = logging.getLogger("anystream.main")
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup and shutdown lifecycle management."""
     logger.info("Initializing %s v%s in [%s] mode...", settings.PROJECT_NAME, settings.VERSION, settings.ENVIRONMENT)
+    try:
+        init_db()
+    except Exception as e:
+        logger.warning("Database initialization note: %s", str(e))
     yield
     logger.info("Shutting down %s...", settings.PROJECT_NAME)
 

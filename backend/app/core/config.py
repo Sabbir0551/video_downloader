@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Database & Redis
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/anystream"
-    DATABASE_SYNC_URL: str = "postgresql://postgres:postgres@localhost:5432/anystream"
+    DATABASE_SYNC_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/anystream"
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Worker & Storage Quotas

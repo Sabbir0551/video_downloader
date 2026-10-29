@@ -16,9 +16,58 @@ router = APIRouter()
     summary="Inspect media URL and list formats",
     description="Validates target URL against SSRF policy, resolves media details via yt-dlp, and returns clean quality options.",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid URL, private network destination, or unsupported host"},
-        403: {"model": ErrorResponse, "description": "DRM-protected content"},
-        429: {"model": ErrorResponse, "description": "Rate limited by upstream provider"},
+        400: {
+            "model": ErrorResponse,
+            "description": "Invalid URL, private network destination, or unsupported host",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error_code": "SSRF_DESTINATION_FORBIDDEN",
+                        "message": "Access to host '127.0.0.1' is denied by security policy.",
+                        "details": {"hostname": "127.0.0.1"},
+                    }
+                }
+            },
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "DRM-protected or paywalled content",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error_code": "MEDIA_DRM_PROTECTED",
+                        "message": "This media stream is DRM-protected and cannot be downloaded.",
+                        "details": {},
+                    }
+                }
+            },
+        },
+        429: {
+            "model": ErrorResponse,
+            "description": "Rate limited by upstream provider",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error_code": "RATE_LIMIT_EXCEEDED",
+                        "message": "The upstream video provider is temporarily rate-limiting requests. Please try again later.",
+                        "details": {},
+                    }
+                }
+            },
+        },
+        451: {
+            "model": ErrorResponse,
+            "description": "Content unavailable due to legal or DMCA takedown",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error_code": "LEGAL_TAKEDOWN_BLOCK",
+                        "message": "This content has been blocked due to a copyright or legal notice.",
+                        "details": {},
+                    }
+                }
+            },
+        },
     },
 )
 async def get_media_info(payload: UrlExtractRequest) -> MediaInfoResponse:

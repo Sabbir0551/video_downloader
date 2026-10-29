@@ -1,28 +1,45 @@
-from typing import AsyncGenerator
+import logging
+from contextlib import contextmanager
+from typing import AsyncGenerator, Generator
+
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+from app.models.base import Base
 
-# Async engine for FastAPI
-engine = create_async_engine(
+logger = logging.getLogger("anystream.db")
+
+# Async Engine for FastAPI
+async_engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
-    pool_size=20,
-    max_overflow=10,
     pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
+    bind=async_engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,
     autoflush=False,
 )
 
-Base = declarative_base()
+# Sync Engine for Celery workers & sync operations
+sync_engine = create_engine(
+    settings.DATABASE_SYNC_URL,
+    echo=settings.DEBUG,
+    future=True,
+    pool_pre_ping=True,
+)
+
+SyncSessionLocal = sessionmaker(
+    bind=sync_engine,
+    autocommit=False,
+    autoflush=False,
+)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -37,3 +54,25 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
+
+@contextmanager
+def get_sync_db() -> Generator[Session, None, None]:
+    """Synchronous context manager for Celery workers."""
+    session = SyncSessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def init_db() -> None:
+    """Creates database tables if they do not exist."""
+    try:
+        Base.metadata.create_all(bind=sync_engine)
+        logger.info("Database tables verified/initialized.")
+    except Exception as err:
+        logger.warning("Auto init_db note: %s", str(err))

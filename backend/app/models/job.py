@@ -3,8 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -28,7 +27,7 @@ class DownloadJob(Base, TimestampMixin):
     __tablename__ = "download_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         default=uuid.uuid4,
         primary_key=True,
     )
@@ -57,6 +56,7 @@ class DownloadJob(Base, TimestampMixin):
     file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     file_ext: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    download_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     # Expiry for janitor eviction
     expires_at: Mapped[Optional[datetime]] = mapped_column(
