@@ -38,10 +38,11 @@ def get_ydl_options() -> Dict[str, Any]:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
-        "socket_timeout": 15,
+        "socket_timeout": 30,
         "noplaylist": True,
         "no_color": True,
         "ignoreerrors": False,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "js_runtimes": {"node": {}},
         "logger": SilentLogger(),
     }

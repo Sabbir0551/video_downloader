@@ -102,7 +102,7 @@ def generate_download_token(job_id: str, file_name: str, expiry_seconds: int = 1
     now = int(time.time())
     payload = {
         "job_id": job_id,
-        "file_name": file_name,
+        "file_name": file_name[:80] if file_name else "media",
         "iat": now,
         "exp": now + expiry_seconds,
     }

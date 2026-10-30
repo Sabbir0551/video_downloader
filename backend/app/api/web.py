@@ -172,6 +172,7 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function displayVideoInfo(info) {
+            clearError();
             document.getElementById('videoThumb').src = info.thumbnail_url || '';
             document.getElementById('videoTitle').innerText = info.title;
             const dur = info.duration ? Math.floor(info.duration / 60) + ' মিনিট ' + (info.duration % 60) + ' সেকেন্ড' : '';

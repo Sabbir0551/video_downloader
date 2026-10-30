@@ -56,7 +56,7 @@ class DownloadJob(Base, TimestampMixin):
     file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     file_ext: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    download_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    download_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Expiry for janitor eviction
     expires_at: Mapped[Optional[datetime]] = mapped_column(
