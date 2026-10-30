@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { Language, translations } from "@/lib/i18n";
-import { Moon, Sun, Globe, History, Activity } from "lucide-react";
+import { Moon, Sun, Globe, History } from "lucide-react";
 
 interface HeaderProps {
   lang: Language;
@@ -29,7 +30,7 @@ export function Header({
     <header className="w-full border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 transition-colors">
       <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo and Brand */}
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xl shadow-md shadow-blue-500/20">
             A
           </div>
@@ -43,7 +44,7 @@ export function Header({
               </span>
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -56,7 +57,7 @@ export function Header({
                 ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60"
                 : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
             }`}
-            title={backendHealthy ? "Backend API Online" : "Checking Backend Connection"}
+            title={backendHealthy ? t.apiOnline : t.apiConnecting}
           >
             <span
               className={`w-2 h-2 rounded-full ${
@@ -68,7 +69,7 @@ export function Header({
               }`}
             />
             <span className="text-[11px] font-semibold">
-              {backendHealthy === true ? "API Online" : backendHealthy === false ? "Offline" : "Connecting"}
+              {backendHealthy === true ? t.apiOnline : backendHealthy === false ? t.apiOffline : t.apiConnecting}
             </span>
           </div>
 
@@ -111,4 +112,3 @@ export function Header({
     </header>
   );
 }
-

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { HistoryItem, clearStoredHistory } from "@/lib/storage";
+import { HistoryItem } from "@/lib/storage";
 import { Language, translations } from "@/lib/i18n";
 import { apiClient } from "@/lib/api-client";
 import { X, Trash2, Download, Video, Calendar } from "lucide-react";
@@ -53,7 +53,7 @@ export function DownloadHistory({ isOpen, onClose, items, lang, onClear }: Downl
             {items.length > 0 && (
               <button
                 onClick={onClear}
-                className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 title={t.clearHistory}
               >
                 <Trash2 className="w-4 h-4" />
@@ -61,8 +61,8 @@ export function DownloadHistory({ isOpen, onClose, items, lang, onClear }: Downl
             )}
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="Close"
+              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title={t.close}
             >
               <X className="w-5 h-5" />
             </button>
@@ -116,7 +116,7 @@ export function DownloadHistory({ isOpen, onClose, items, lang, onClear }: Downl
                 <a
                   href={apiClient.resolveDownloadUrl(item.downloadUrl)}
                   download
-                  className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shrink-0"
+                  className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shrink-0 cursor-pointer"
                   title={t.saveFile}
                 >
                   <Download className="w-4 h-4" />
@@ -129,4 +129,3 @@ export function DownloadHistory({ isOpen, onClose, items, lang, onClear }: Downl
     </div>
   );
 }
-

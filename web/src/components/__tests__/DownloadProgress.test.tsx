@@ -125,5 +125,66 @@ describe("DownloadProgress Component", () => {
       expect(handleCancel).toHaveBeenCalled();
     });
   });
-});
 
+  it("renders failure state and retry button on job failure", async () => {
+    const handleRetry = vi.fn();
+    vi.mocked(apiClient.getJobStatus).mockResolvedValueOnce({
+      job_id: "failed-job-uuid",
+      status: JobStatus.FAILED,
+      progress: 0.0,
+      error_code: "MEDIA_DRM_PROTECTED",
+      error_message: null,
+      created_at: new Date().toISOString(),
+      expires_at: new Date().toISOString(),
+    });
+
+    render(
+      <DownloadProgress
+        jobId="failed-job-uuid"
+        videoTitle="DRM Video"
+        lang="en"
+        onCancel={vi.fn()}
+        onRetry={handleRetry}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/This media stream is encrypted by DRM/i)
+      ).toBeInTheDocument();
+      const retryBtn = screen.getByRole("button", { name: /Try Again/i });
+      expect(retryBtn).toBeInTheDocument();
+      fireEvent.click(retryBtn);
+      expect(handleRetry).toHaveBeenCalled();
+    });
+  });
+
+  it("renders Bengali progress metrics when lang is bn", async () => {
+    vi.mocked(apiClient.getJobStatus).mockResolvedValueOnce({
+      job_id: "bn-job-uuid",
+      status: JobStatus.PROCESSING,
+      progress: 60.0,
+      speed: "2.5 MB/s",
+      eta: 10,
+      created_at: new Date().toISOString(),
+      expires_at: new Date().toISOString(),
+    });
+
+    render(
+      <DownloadProgress
+        jobId="bn-job-uuid"
+        videoTitle="বাংলা নাটক"
+        lang="bn"
+        onCancel={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("60%")).toBeInTheDocument();
+      expect(screen.getByText(/স্পিড: 2.5 MB\/s/i)).toBeInTheDocument();
+      expect(screen.getByText(/বাকি সময়: 10সেকেন্ড/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /বাতিল করুন/i })).toBeInTheDocument();
+    });
+  });
+});

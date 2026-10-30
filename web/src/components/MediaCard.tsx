@@ -103,7 +103,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Selected: <strong className="text-blue-600 dark:text-blue-400 font-semibold">{selectedLabel}</strong>
+              {t.selectedQuality} <strong className="text-blue-600 dark:text-blue-400 font-semibold">{selectedLabel}</strong>
             </span>
 
             <button
@@ -132,7 +132,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                 setActiveTab("video");
                 setSelectedIsAudio(false);
               }}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "video"
                   ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -146,7 +146,6 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
               onClick={() => {
                 setActiveTab("audio");
                 setSelectedIsAudio(true);
-                // default to first audio if exists or best audio
                 if (audioFormats.length > 0) {
                   setSelectedFormatId(audioFormats[0].format_id);
                   setSelectedLabel(audioFormats[0].resolution || "MP3");
@@ -155,7 +154,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                   setSelectedLabel("MP3 (192kbps)");
                 }
               }}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "audio"
                   ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -191,7 +190,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                   MP4 (HD / Auto)
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  Optimal Quality
+                  {t.optimalQuality}
                 </div>
               </button>
 
@@ -220,7 +219,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                       {fmt.ext} {fmt.fps ? `• ${fmt.fps}fps` : ""}
                     </div>
                     <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                      {fmt.filesize ? formatBytes(fmt.filesize) : "Est. Size Auto"}
+                      {fmt.filesize ? formatBytes(fmt.filesize) : t.estSizeAuto}
                     </div>
                   </button>
                 );
@@ -242,13 +241,13 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                   <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
                 <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                  MP3 Audio
+                  {t.mp3Title}
                 </div>
                 <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
-                  192 kbps • MP3
+                  {t.mp3Desc}
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  Universal Compatible
+                  {t.universalCompatible}
                 </div>
               </button>
 
@@ -266,13 +265,13 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                   <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
                 <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                  M4A Audio
+                  {t.m4aTitle}
                 </div>
                 <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
-                  Direct AAC Stream
+                  {t.m4aDesc}
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  Fastest Conversion
+                  {t.directAacStream}
                 </div>
               </button>
 
@@ -301,7 +300,7 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                       {fmt.ext}
                     </div>
                     <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                      {fmt.filesize ? formatBytes(fmt.filesize) : "Est. Size Auto"}
+                      {fmt.filesize ? formatBytes(fmt.filesize) : t.estSizeAuto}
                     </div>
                   </button>
                 );
@@ -313,4 +312,3 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
     </div>
   );
 }
-

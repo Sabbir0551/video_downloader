@@ -68,5 +68,31 @@ describe("UrlInput Component", () => {
     expect(input).toBeDisabled();
     expect(screen.getByText(/Analyzing.../i)).toBeInTheDocument();
   });
-});
 
+  it("renders Bengali placeholders and validation errors when lang is bn", () => {
+    const handleSearch = vi.fn();
+    render(<UrlInput lang="bn" onSearch={handleSearch} isLoading={false} />);
+
+    expect(
+      screen.getByPlaceholderText(/ভিডিও লিংক পেস্ট করুন/i)
+    ).toBeInTheDocument();
+
+    const submitBtn = screen.getByRole("button", { name: /সার্চ করুন/i });
+    fireEvent.click(submitBtn);
+
+    expect(
+      screen.getByText(/অনুগ্রহ করে একটি বৈধ ভিডিও লিংক দিন/i)
+    ).toBeInTheDocument();
+  });
+
+  it("clears input when clear button is clicked", () => {
+    const handleSearch = vi.fn();
+    render(<UrlInput lang="en" onSearch={handleSearch} isLoading={false} initialUrl="https://example.com" />);
+
+    const clearBtn = screen.getByTitle(/Clear/i);
+    fireEvent.click(clearBtn);
+
+    const input = screen.getByPlaceholderText(/Paste video link here/i) as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+});

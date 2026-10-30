@@ -207,10 +207,10 @@ export default function HomePage() {
             <div className="space-y-4">
               <button
                 onClick={handleResetToSearch}
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Change Quality or URL</span>
+                <span>{t.changeQualityOrUrl}</span>
               </button>
 
               <DownloadProgress
