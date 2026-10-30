@@ -13,10 +13,15 @@ start "AnyStream Worker" cmd /k "run_worker.bat"
 echo Starting Celery Beat Janitor Scheduler...
 start "AnyStream Beat" cmd /k "run_beat.bat"
 
+echo Starting Next.js Web Frontend...
+start "AnyStream Web" cmd /k "run_web.bat"
+
 echo.
 echo ========================================================
 echo   All services launched in separate windows!
-echo   Swagger UI: http://127.0.0.1:8000/docs
+echo   Web Frontend: http://localhost:3000
+echo   Backend API:  http://localhost:8000
+echo   Swagger UI:   http://localhost:8000/docs
 echo ========================================================
 echo You can keep this window open or close it.
 pause
