@@ -312,10 +312,15 @@ async def download_file(
     if not os.path.exists(job.file_path):
         raise JobNotFoundError("The requested file has expired or was pruned by the cleanup janitor.")
 
-    # 4. Construct RFC 5987 / RFC 6266 safe filename
+    # 4. Construct RFC 5987 / RFC 6266 safe filename (Strict ASCII in filename, UTF-8 in filename*)
     file_ext = job.file_ext or os.path.splitext(job.file_path)[1].lstrip(".") or "mp4"
     safe_filename = sanitize_filename(job.title or "media_download", file_ext)
     encoded_filename = urllib.parse.quote(safe_filename)
+
+    # ASCII-only fallback filename to avoid Starlette Latin-1 header encoding crashes with Unicode
+    ascii_clean = safe_filename.encode("ascii", "ignore").decode("ascii").strip(" ._")
+    base_ascii = os.path.splitext(ascii_clean)[0].strip(" ._") if ascii_clean else ""
+    ascii_filename = f"{base_ascii}.{file_ext}" if base_ascii else f"video_download.{file_ext}"
 
     # Determine media mime type
     media_type = "video/mp4"
@@ -327,7 +332,7 @@ async def download_file(
         media_type = "video/webm"
 
     content_disposition = (
-        f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+        f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded_filename}'
     )
 
     return FileResponse(

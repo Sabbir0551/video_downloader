@@ -103,8 +103,8 @@ HTML_PAGE = """<!DOCTYPE html>
                     <span id="etaText">বাকি সময়: --</span>
                 </div>
                 <div class="download-action" id="downloadAction">
-                    <a id="downloadLink" class="btn btn-success" style="width: 100%; font-size: 1.1rem; padding: 16px;" href="#" download>
-                        📥 ভিডিও ফাইল সেভ করুন (.mp4)
+                    <a id="downloadLink" class="btn btn-success" style="width: 100%; font-size: 1.1rem; padding: 16px;" href="#" target="_blank">
+                        📥 ভিডিও ফাইল সেভ করুন
                     </a>
                 </div>
             </div>
