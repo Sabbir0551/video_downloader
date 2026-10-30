@@ -248,104 +248,6 @@ async def create_download_job(
 
 
 @router.get(
-    "/downloads/{job_id}",
-    response_model=JobStatusResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Get download job status and progress",
-    description="Returns current status, progress percentage, ETA, and download URL when completed. Accepts job UUID or video URL.",
-    responses={
-        200: {"model": JobStatusResponse, "description": "Current job status"},
-        404: {
-            "model": ErrorResponse,
-            "description": "Job not found or expired",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "error_code": "JOB_NOT_FOUND",
-                        "message": "Download job not found or has expired.",
-                        "details": {},
-                    }
-                }
-            },
-        },
-    },
-)
-async def get_download_status(
-    job_id: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> JobStatusResponse:
-    """Retrieves real-time job state and metrics. Accepts UUID or media URL."""
-    clean_id_str = urllib.parse.unquote(str(job_id)).strip()
-    job = None
-
-    # 1. If user entered a video URL instead of a UUID, look up or auto-enqueue
-    if clean_id_str.startswith(("http://", "https://")):
-        clean_url, _ = validate_url_security(clean_id_str)
-        url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
-        stmt = (
-            select(DownloadJob)
-            .where(DownloadJob.url_hash == url_hash)
-            .order_by(DownloadJob.created_at.desc())
-        )
-        res = await db.execute(stmt)
-        job = res.scalars().first()
-
-        # If no job exists yet for this URL, auto-enqueue it!
-        if not job:
-            return await create_download_job(request, CreateJobRequest(url=clean_url), db)
-    else:
-        try:
-            target_uuid = uuid.UUID(clean_id_str)
-        except ValueError:
-            raise JobNotFoundError("Invalid job ID format. Expected a valid UUID or video URL.")
-
-        stmt = select(DownloadJob).where(DownloadJob.id == target_uuid)
-        res = await db.execute(stmt)
-        job = res.scalars().first()
-
-    if not job:
-        raise JobNotFoundError("Download job not found or has expired.")
-
-    # Live progress overlay from Redis if job is processing
-    progress = job.progress
-    speed = job.speed
-    eta = job.eta
-
-    if job.status == JobStatus.PROCESSING and redis_client:
-        try:
-            cached_progress_str = redis_client.get(f"job:{job.id}:progress")
-            if cached_progress_str:
-                cached_data = json.loads(cached_progress_str)
-                progress = float(cached_data.get("progress") or progress)
-                speed = cached_data.get("speed") or speed
-                eta_val = cached_data.get("eta")
-                if eta_val is not None:
-                    try:
-                        eta = int(round(float(eta_val)))
-                    except (ValueError, TypeError):
-                        eta = None
-                else:
-                    eta = job.eta
-        except Exception:
-            pass
-
-    return JobStatusResponse(
-        job_id=job.id,
-        status=job.status,
-        progress=progress,
-        speed=speed,
-        eta=eta,
-        file_size=job.file_size,
-        download_url=job.download_url,
-        created_at=job.created_at,
-        expires_at=job.expires_at,
-        error_code=job.error_code,
-        error_message=job.error_message,
-    )
-
-
-@router.get(
     "/downloads/{job_id}/file",
     summary="Download finalized media file",
     description="Serves media file using a signed, expiring token. Supports HTTP Range requests.",
@@ -495,6 +397,104 @@ async def cancel_download_job(
         eta=job.eta,
         file_size=job.file_size,
         download_url=None,
+        created_at=job.created_at,
+        expires_at=job.expires_at,
+        error_code=job.error_code,
+        error_message=job.error_message,
+    )
+
+
+@router.get(
+    "/downloads/{job_id:path}",
+    response_model=JobStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get download job status and progress",
+    description="Returns current status, progress percentage, ETA, and download URL when completed. Accepts job UUID or video URL.",
+    responses={
+        200: {"model": JobStatusResponse, "description": "Current job status"},
+        404: {
+            "model": ErrorResponse,
+            "description": "Job not found or expired",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error_code": "JOB_NOT_FOUND",
+                        "message": "Download job not found or has expired.",
+                        "details": {},
+                    }
+                }
+            },
+        },
+    },
+)
+async def get_download_status(
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JobStatusResponse:
+    """Retrieves real-time job state and metrics. Accepts UUID or media URL."""
+    clean_id_str = urllib.parse.unquote(str(job_id)).strip()
+    job = None
+
+    # 1. If user entered a video URL instead of a UUID, look up or auto-enqueue
+    if clean_id_str.startswith(("http://", "https://")):
+        clean_url, _ = validate_url_security(clean_id_str)
+        url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
+        stmt = (
+            select(DownloadJob)
+            .where(DownloadJob.url_hash == url_hash)
+            .order_by(DownloadJob.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        job = res.scalars().first()
+
+        # If no job exists yet for this URL, auto-enqueue it!
+        if not job:
+            return await create_download_job(request, CreateJobRequest(url=clean_url), db)
+    else:
+        try:
+            target_uuid = uuid.UUID(clean_id_str)
+        except ValueError:
+            raise JobNotFoundError("Invalid job ID or video URL format.")
+
+        stmt = select(DownloadJob).where(DownloadJob.id == target_uuid)
+        res = await db.execute(stmt)
+        job = res.scalars().first()
+
+    if not job:
+        raise JobNotFoundError("Download job not found or has expired. Please submit the URL to start a new download.")
+
+    # Live progress overlay from Redis if job is processing
+    progress = job.progress
+    speed = job.speed
+    eta = job.eta
+
+    if job.status == JobStatus.PROCESSING and redis_client:
+        try:
+            cached_progress_str = redis_client.get(f"job:{job.id}:progress")
+            if cached_progress_str:
+                cached_data = json.loads(cached_progress_str)
+                progress = float(cached_data.get("progress") or progress)
+                speed = cached_data.get("speed") or speed
+                eta_val = cached_data.get("eta")
+                if eta_val is not None:
+                    try:
+                        eta = int(round(float(eta_val)))
+                    except (ValueError, TypeError):
+                        eta = None
+                else:
+                    eta = job.eta
+        except Exception:
+            pass
+
+    return JobStatusResponse(
+        job_id=job.id,
+        status=job.status,
+        progress=progress,
+        speed=speed,
+        eta=eta,
+        file_size=job.file_size,
+        download_url=job.download_url,
         created_at=job.created_at,
         expires_at=job.expires_at,
         error_code=job.error_code,

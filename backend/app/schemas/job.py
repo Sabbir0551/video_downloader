@@ -11,6 +11,17 @@ from app.models.job import JobStatus
 class CreateJobRequest(BaseModel):
     """Payload for submitting a background download job."""
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "format_id": "best",
+                "audio_only": False,
+                "quality_label": "Best Video",
+            }
+        }
+    }
+
     url: str = Field(..., description="Target video URL", max_length=2048)
     format_id: str = Field(default="best", description="Target format selector", max_length=64)
     audio_only: bool = Field(default=False, description="Convert/download as audio file")

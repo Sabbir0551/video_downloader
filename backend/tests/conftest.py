@@ -35,8 +35,15 @@ def clean_test_environment():
         pass
 
     with get_sync_db() as db:
-        Base.metadata.drop_all(bind=db.bind)
-        Base.metadata.create_all(bind=db.bind)
+        try:
+            from sqlalchemy import text
+            db.execute(text("DELETE FROM abuse_logs"))
+            db.execute(text("DELETE FROM download_jobs"))
+            db.execute(text("DELETE FROM takedown_records"))
+            db.commit()
+        except Exception:
+            db.rollback()
+            Base.metadata.create_all(bind=db.bind)
 
     yield
 
