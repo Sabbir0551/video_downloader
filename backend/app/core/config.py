@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     DATABASE_SYNC_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/anystream"
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Caching
+    CACHE_TTL_SECONDS: int = 900  # 15 minutes (successful extraction)
+    CACHE_ERROR_TTL_SECONDS: int = 30  # Max 30 seconds for failed extractions
+
     # Worker & Storage Quotas
     STORAGE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../storage/tmp"))
     MAX_FILE_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
