@@ -3,13 +3,16 @@
  * Strictly synchronized with backend schemas and docs/api/openapi.yaml
  */
 
-export type JobStatus =
-  | "QUEUED"
-  | "PROCESSING"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELLED"
-  | "EXPIRED";
+export const JobStatus = {
+  QUEUED: "QUEUED",
+  PROCESSING: "PROCESSING",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+  EXPIRED: "EXPIRED",
+} as const;
+
+export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 
 export interface FormatOption {
   format_id: string;
@@ -18,6 +21,7 @@ export interface FormatOption {
   fps?: number | null;
   ext: string;
   format_note: string;
+  filesize?: number | null;
   filesize_approx?: number | null;
   is_audio_only: boolean;
   abr?: number | null;
@@ -30,6 +34,7 @@ export interface MediaInfoResponse {
   thumbnail_url: string;
   duration: number;
   uploader?: string | null;
+  extractor?: string | null;
   is_live?: boolean;
   formats: FormatOption[];
 }
@@ -50,13 +55,13 @@ export interface CreateJobRequest {
 export interface JobStatusResponse {
   job_id: string;
   status: JobStatus;
-  progress?: number | null;
+  progress: number;
   speed?: string | null;
   eta?: number | null;
   file_size?: number | null;
   download_url?: string | null;
   created_at: string;
-  expires_at?: string | null;
+  expires_at: string;
   error_code?: string | null;
   error_message?: string | null;
 }
@@ -70,29 +75,25 @@ export interface TakedownRequest {
   declaration_truth: boolean;
 }
 
-export type TakedownStatus =
-  | "RECEIVED"
-  | "BLOCKED_PENDING_REVIEW"
-  | "APPROVED"
-  | "REJECTED";
-
 export interface TakedownResponse {
   case_id: string;
-  status: TakedownStatus;
+  status: string;
   message: string;
   created_at: string;
 }
 
 export interface HealthResponse {
-  status: "healthy" | "degraded" | "unhealthy";
+  status: string;
+  project: string;
   version: string;
+  environment: string;
+  database: string;
+  cache: string;
   ytdlp_version: string;
-  database: boolean;
-  redis: boolean;
 }
 
 export interface ErrorResponse {
   error_code: string;
   message: string;
-  details?: Record<string, unknown> | null;
+  details?: Record<string, unknown>;
 }

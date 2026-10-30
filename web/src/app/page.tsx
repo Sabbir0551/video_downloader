@@ -1,189 +1,253 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { Header } from "@/components/Header";
+import { UrlInput } from "@/components/UrlInput";
+import { MediaSkeleton } from "@/components/MediaSkeleton";
+import { MediaCard } from "@/components/MediaCard";
+import { DownloadProgress } from "@/components/DownloadProgress";
+import { DownloadHistory } from "@/components/DownloadHistory";
+import { Footer } from "@/components/Footer";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { HealthResponse } from "@/types/api";
+import { MediaInfoResponse } from "@/types/api";
+import {
+  Language,
+  translations,
+  getErrorMessage,
+} from "@/lib/i18n";
+import {
+  HistoryItem,
+  getStoredHistory,
+  clearStoredHistory,
+  getStoredLang,
+  setStoredLang,
+  getStoredTheme,
+  setStoredTheme,
+} from "@/lib/storage";
+import { AlertCircle, ArrowLeft } from "lucide-react";
 
-export default function Home() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [corsStatus, setCorsStatus] = useState<"checking" | "connected" | "error">("checking");
+export default function HomePage() {
+  const [lang, setLang] = useState<Language>("bn");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [backendHealthy, setBackendHealthy] = useState<boolean | null>(null);
+
+  // Flow State
+  const [activeUrl, setActiveUrl] = useState<string>("");
+  const [isInspecting, setIsInspecting] = useState<boolean>(false);
+  const [isStartingJob, setIsStartingJob] = useState<boolean>(false);
+  const [mediaInfo, setMediaInfo] = useState<MediaInfoResponse | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [selectedQualityLabel, setSelectedQualityLabel] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
-  const checkConnection = async () => {
-    setCorsStatus("checking");
+  // History State
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+
+  // Initialize preferences on client mount
+  useEffect(() => {
+    const savedLang = getStoredLang();
+    const savedTheme = getStoredTheme();
+    setLang(savedLang);
+    setTheme(savedTheme);
+    setStoredTheme(savedTheme);
+    setHistoryItems(getStoredHistory());
+
+    // Health ping
+    apiClient
+      .getHealth()
+      .then((h) => setBackendHealthy(h.status === "healthy"))
+      .catch(() => setBackendHealthy(false));
+  }, []);
+
+  const handleToggleLang = () => {
+    const next = lang === "en" ? "bn" : "en";
+    setLang(next);
+    setStoredLang(next);
+  };
+
+  const handleToggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    setStoredTheme(next);
+  };
+
+  const handleClearHistory = () => {
+    clearStoredHistory();
+    setHistoryItems([]);
+  };
+
+  // Step 2: Handle URL inspection
+  const handleInspectUrl = async (url: string) => {
+    setActiveUrl(url);
+    setIsInspecting(true);
     setErrorMessage(null);
-    const start = performance.now();
+    setMediaInfo(null);
+    setActiveJobId(null);
+
     try {
-      const data = await apiClient.getHealth();
-      setLatencyMs(Math.round(performance.now() - start));
-      setHealth(data);
-      setCorsStatus("connected");
-    } catch (err) {
-      setLatencyMs(Math.round(performance.now() - start));
-      setCorsStatus("error");
+      const data = await apiClient.getMediaInfo(url);
+      setMediaInfo(data);
+    } catch (err: unknown) {
       if (err instanceof ApiClientError) {
-        setErrorMessage(`[${err.errorCode}] ${err.message}`);
+        setErrorMessage(getErrorMessage(err.errorCode, lang));
       } else if (err instanceof Error) {
         setErrorMessage(err.message);
       } else {
-        setErrorMessage("Failed to connect to backend server.");
+        setErrorMessage(translations[lang].errors.DEFAULT);
       }
+    } finally {
+      setIsInspecting(false);
     }
   };
 
-  useEffect(() => {
-    checkConnection();
-  }, []);
+  // Step 3: Handle download initiation
+  const handleStartDownload = async (
+    formatId: string,
+    isAudioOnly: boolean,
+    label: string
+  ) => {
+    if (!activeUrl) return;
+    setIsStartingJob(true);
+    setSelectedQualityLabel(label);
+    setErrorMessage(null);
+
+    try {
+      const job = await apiClient.createJob({
+        url: activeUrl,
+        format_id: formatId,
+        audio_only: isAudioOnly,
+        quality_label: label,
+      });
+      setActiveJobId(job.job_id);
+    } catch (err: unknown) {
+      if (err instanceof ApiClientError) {
+        setErrorMessage(getErrorMessage(err.errorCode, lang));
+      } else if (err instanceof Error) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage(translations[lang].errors.DEFAULT);
+      }
+    } finally {
+      setIsStartingJob(false);
+    }
+  };
+
+  const handleCancelDownload = () => {
+    setActiveJobId(null);
+  };
+
+  const handleRetryDownload = () => {
+    setActiveJobId(null);
+  };
+
+  const handleResetToSearch = () => {
+    setActiveJobId(null);
+    setMediaInfo(null);
+    setErrorMessage(null);
+  };
+
+  const t = translations[lang];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-6 border-b border-slate-800">
-          <div>
-            <span className="text-xs uppercase tracking-widest text-blue-400 font-bold">
-              Phase 3 • Step 1
-            </span>
-            <h1 className="text-2xl font-extrabold text-white mt-1">
-              AnyStream Web Frontend
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              {corsStatus === "connected" && (
-                <>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </>
-              )}
-              {corsStatus === "checking" && (
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
-              )}
-              {corsStatus === "error" && (
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-              )}
-            </span>
-            <span className="text-sm font-semibold capitalize">
-              {corsStatus === "connected" && "Backend Connected"}
-              {corsStatus === "checking" && "Connecting..."}
-              {corsStatus === "error" && "Connection Error"}
-            </span>
-          </div>
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#080d1a] text-slate-900 dark:text-slate-100 transition-colors">
+      {/* Navbar Header */}
+      <Header
+        lang={lang}
+        onToggleLang={handleToggleLang}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        historyCount={historyItems.length}
+        onOpenHistory={() => {
+          setHistoryItems(getStoredHistory());
+          setIsHistoryOpen(true);
+        }}
+        backendHealthy={backendHealthy}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col items-center">
+        {/* Hero Title and Tagline */}
+        <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
+          <h1 className="text-3xl sm:text-5xl font-black tracking-tight bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:via-indigo-300 dark:to-purple-400 bg-clip-text text-transparent">
+            {t.appName}
+          </h1>
+          <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400 font-medium">
+            {t.tagline}
+          </p>
         </div>
 
-        {/* Verification Checklist */}
-        <div className="mt-6 space-y-3">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-            Step 1 Setup Checklist
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
-              <span className="text-slate-300">Next.js App Router (v16+)</span>
-              <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
-                Active
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
-              <span className="text-slate-300">TypeScript & Tailwind CSS</span>
-              <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
-                Active
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
-              <span className="text-slate-300">OpenAPI Typed Client</span>
-              <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
-                Synced
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
-              <span className="text-slate-300">Security Headers (CSP/XSS)</span>
-              <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
-                Enforced
-              </span>
-            </div>
-          </div>
+        {/* Input Bar Section */}
+        <div className="w-full max-w-2xl mb-6">
+          <UrlInput
+            lang={lang}
+            onSearch={handleInspectUrl}
+            isLoading={isInspecting}
+            initialUrl={activeUrl}
+          />
         </div>
 
-        {/* API Base URL & CORS Health Check */}
-        <div className="mt-6 bg-slate-950/80 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-slate-400">Target Backend Base URL:</div>
-              <div className="font-mono text-sm text-blue-400 mt-0.5">
-                {apiClient.getBaseUrl()}
-              </div>
+        {/* Friendly Error Message Box */}
+        {errorMessage && (
+          <div className="w-full max-w-2xl mb-6 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 flex items-start gap-3 shadow-xs animate-in fade-in">
+            <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">{errorMessage}</p>
             </div>
-            <button
-              onClick={checkConnection}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition active:scale-95"
-            >
-              Re-test Connection
-            </button>
           </div>
+        )}
 
-          {corsStatus === "connected" && health && (
-            <div className="mt-4 pt-4 border-t border-slate-800/80">
-              <div className="text-xs font-semibold text-emerald-400 flex items-center gap-2">
-                <span>CORS & Handshake Verified</span>
-                {latencyMs !== null && (
-                  <span className="text-slate-500 font-mono">({latencyMs}ms)</span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-xs">
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 block">Status</span>
-                  <span className="font-semibold text-emerald-400 uppercase">
-                    {health.status}
-                  </span>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 block">DB (PostgreSQL)</span>
-                  <span className="font-semibold text-white">
-                    {health.database ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 block">Queue (Redis)</span>
-                  <span className="font-semibold text-white">
-                    {health.redis ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 block">yt-dlp Core</span>
-                  <span className="font-semibold text-white">
-                    v{health.ytdlp_version}
-                  </span>
-                </div>
-              </div>
+        {/* Dynamic Display State Area */}
+        <div className="w-full max-w-2xl">
+          {/* 1. Loading Skeleton while inspecting */}
+          {isInspecting && <MediaSkeleton />}
+
+          {/* 2. Active Download Progress Tracker */}
+          {activeJobId && mediaInfo && (
+            <div className="space-y-4">
+              <button
+                onClick={handleResetToSearch}
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Change Quality or URL</span>
+              </button>
+
+              <DownloadProgress
+                jobId={activeJobId}
+                videoTitle={mediaInfo.title}
+                thumbnailUrl={mediaInfo.thumbnail_url}
+                qualityLabel={selectedQualityLabel}
+                lang={lang}
+                onCancel={handleCancelDownload}
+                onRetry={handleRetryDownload}
+              />
             </div>
           )}
 
-          {corsStatus === "error" && (
-            <div className="mt-4 pt-4 border-t border-rose-900/60 text-xs">
-              <div className="text-rose-400 font-semibold">
-                Failed to reach backend API
-              </div>
-              <p className="text-slate-400 mt-1">{errorMessage}</p>
-              <p className="text-slate-500 mt-2">
-                Make sure the backend server is running at{" "}
-                <code className="text-slate-300 font-mono">
-                  {apiClient.getBaseUrl()}
-                </code>
-              </p>
-            </div>
+          {/* 3. Media Card with Format Options (when not downloading) */}
+          {!activeJobId && mediaInfo && (
+            <MediaCard
+              media={mediaInfo}
+              lang={lang}
+              onStartDownload={handleStartDownload}
+              isStarting={isStartingJob}
+            />
           )}
         </div>
+      </main>
 
-        {/* Next Step Info */}
-        <div className="mt-6 text-center text-xs text-slate-500">
-          Ready to proceed to <strong className="text-slate-400">Step 2: Home Page & URL Inspector</strong> upon testing approval.
-        </div>
-      </div>
+      {/* Download History Modal */}
+      <DownloadHistory
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        items={historyItems}
+        lang={lang}
+        onClear={handleClearHistory}
+      />
+
+      {/* Footer */}
+      <Footer lang={lang} />
     </div>
   );
 }

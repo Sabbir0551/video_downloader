@@ -8,5 +8,5 @@ echo Starting Next.js development server on port 3000...
 echo Frontend URL: http://localhost:3000
 echo Backend API:  http://localhost:8000
 echo ========================================================
-pnpm run dev --port 3000
+call pnpm run dev --port 3000
 pause
