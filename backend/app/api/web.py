@@ -241,10 +241,21 @@ HTML_PAGE = """<!DOCTYPE html>
 
         function startPolling(jobId) {
             if (pollTimer) clearInterval(pollTimer);
+            let consecutiveErrors = 0;
             pollTimer = setInterval(async () => {
                 try {
                     const res = await fetch(`/api/v1/downloads/${jobId}`);
-                    if (!res.ok) return;
+                    if (!res.ok) {
+                        consecutiveErrors++;
+                        if (consecutiveErrors > 15) {
+                            clearInterval(pollTimer);
+                            showError('সার্ভারের সাথে সংযোগ বিচ্ছিন্ন হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+                            document.getElementById('progressBox').style.display = 'none';
+                            document.getElementById('videoCard').style.display = 'block';
+                        }
+                        return;
+                    }
+                    consecutiveErrors = 0;
 
                     const job = await res.json();
                     updateProgressUI(job);
@@ -258,7 +269,13 @@ HTML_PAGE = """<!DOCTYPE html>
                         document.getElementById('progressBox').style.display = 'none';
                         document.getElementById('videoCard').style.display = 'block';
                     }
-                } catch (e) {}
+                } catch (e) {
+                    consecutiveErrors++;
+                    if (consecutiveErrors > 15) {
+                        clearInterval(pollTimer);
+                        showError('সার্ভারের সাথে সংযোগ পাওয়া যাচ্ছে না।');
+                    }
+                }
             }, 1000);
         }
 
