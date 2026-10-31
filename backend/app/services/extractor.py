@@ -92,6 +92,13 @@ def map_ytdlp_error(err: Exception) -> AppError:
     if "timed out" in err_lower or "timeout" in err_lower or "connection refused" in err_lower:
         return UnsupportedUrlError("Connection to the media host timed out. Please try again.")
 
+    if "s3" in err_lower or "botocore" in err_lower or "boto3" in err_lower or "bucket" in err_lower:
+        return AppError(
+            status_code=500,
+            error_code="STORAGE_ERROR",
+            message="Storage backend encountered an error while storing media.",
+        )
+
     if "signature" in err_lower or "extractor" in err_lower or "nsig" in err_lower:
         return AppError(
             status_code=502,
@@ -288,32 +295,17 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
             cached_json = redis_client.get(cache_key)
             if cached_json:
                 logger.info("Cache HIT for media URL [%s]", canonical_url)
-                try:
-                    from app.core.metrics import record_cache_hit
-                    record_cache_hit()
-                except Exception:
-                    pass
                 return MediaInfoResponse.model_validate_json(cached_json)
 
             cached_err = redis_client.get(err_cache_key)
             if cached_err:
                 err_data = json.loads(cached_err)
                 logger.info("Cache HIT (negative error cache) for media URL [%s]", canonical_url)
-                try:
-                    from app.core.metrics import record_cache_hit
-                    record_cache_hit()
-                except Exception:
-                    pass
                 raise AppError(
                     status_code=err_data.get("status_code", 400),
                     error_code=err_data.get("error_code", "UNSUPPORTED_URL_OR_PLATFORM"),
                     message=err_data.get("message", "Unable to extract media information."),
                 )
-            try:
-                from app.core.metrics import record_cache_miss
-                record_cache_miss()
-            except Exception:
-                pass
         except AppError:
             raise
         except Exception as e:

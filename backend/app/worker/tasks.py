@@ -226,17 +226,29 @@ def download_media_task(
         # Upload file to storage backend using random ID key (never video title)
         storage = get_storage()
         object_key = f"{job_id}.{file_ext}"
-        storage_path = storage.upload(final_path, object_key)
-
-        # If R2 storage, delete local temporary file and store only object key in job record
-        if settings.STORAGE_BACKEND.lower() == "r2":
-            try:
-                os.remove(final_path)
-            except OSError:
-                pass
-            stored_file_path = object_key
-        else:
-            stored_file_path = storage_path
+        try:
+            storage_path = storage.upload(final_path, object_key)
+            # If R2 storage, delete local temporary file and store only object key in job record
+            if settings.STORAGE_BACKEND.lower() == "r2":
+                try:
+                    os.remove(final_path)
+                except OSError:
+                    pass
+                stored_file_path = object_key
+            else:
+                stored_file_path = storage_path
+        except Exception as upload_err:
+            if settings.STORAGE_BACKEND.lower() == "r2":
+                logger.warning(
+                    "R2 storage upload failed (%s). Gracefully falling back to LocalStorage for Job [%s].",
+                    str(upload_err),
+                    job_id,
+                )
+                from app.services.storage import LocalStorage
+                local_storage = LocalStorage()
+                stored_file_path = local_storage.upload(final_path, object_key)
+            else:
+                raise
 
         # Generate signed expiring download token
         with get_sync_db() as db:
@@ -284,15 +296,19 @@ def download_media_task(
             except OSError:
                 pass
 
+        is_cancelled = False
         with get_sync_db() as db:
             job = db.get(DownloadJob, uuid.UUID(job_id))
-            if job and job.status != JobStatus.CANCELLED:
-                job.status = JobStatus.FAILED
-                job.error_code = app_err.error_code
-                job.error_message = app_err.message
-                db.commit()
+            if job:
+                if job.status == JobStatus.CANCELLED:
+                    is_cancelled = True
+                else:
+                    job.status = JobStatus.FAILED
+                    job.error_code = app_err.error_code
+                    job.error_message = app_err.message
+                    db.commit()
 
-        if job and job.status == JobStatus.CANCELLED:
+        if is_cancelled:
             return {"status": "CANCELLED", "job_id": job_id}
 
         failure_data = {
