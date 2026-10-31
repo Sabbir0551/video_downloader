@@ -288,17 +288,32 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
             cached_json = redis_client.get(cache_key)
             if cached_json:
                 logger.info("Cache HIT for media URL [%s]", canonical_url)
+                try:
+                    from app.core.metrics import record_cache_hit
+                    record_cache_hit()
+                except Exception:
+                    pass
                 return MediaInfoResponse.model_validate_json(cached_json)
 
             cached_err = redis_client.get(err_cache_key)
             if cached_err:
                 err_data = json.loads(cached_err)
                 logger.info("Cache HIT (negative error cache) for media URL [%s]", canonical_url)
+                try:
+                    from app.core.metrics import record_cache_hit
+                    record_cache_hit()
+                except Exception:
+                    pass
                 raise AppError(
                     status_code=err_data.get("status_code", 400),
                     error_code=err_data.get("error_code", "UNSUPPORTED_URL_OR_PLATFORM"),
                     message=err_data.get("message", "Unable to extract media information."),
                 )
+            try:
+                from app.core.metrics import record_cache_miss
+                record_cache_miss()
+            except Exception:
+                pass
         except AppError:
             raise
         except Exception as e:

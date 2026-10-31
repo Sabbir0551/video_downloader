@@ -1,0 +1,23 @@
+{
+  "name": "AnyStream Video Downloader",
+  "short_name": "AnyStream",
+  "description": "High-performance multi-platform video downloader and converter",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080d1a",
+  "theme_color": "#080d1a",
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

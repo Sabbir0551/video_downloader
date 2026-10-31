@@ -134,3 +134,20 @@ async def readiness_check(
         redis=redis_ok,
         disk_ok=disk_ok,
     )
+
+
+@router.get(
+    "/metrics",
+    summary="Prometheus system and application metrics",
+    description="Exposes real-time Prometheus metrics for scrapers (jobs, active workers, storage, cache hit/miss).",
+    response_class=Response,
+)
+async def prometheus_metrics_endpoint(
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.metrics import generate_prometheus_metrics
+    metrics_text = await generate_prometheus_metrics(db)
+    return Response(
+        content=metrics_text,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
