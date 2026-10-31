@@ -124,12 +124,8 @@ async def get_media_info(
     if takedown_res.scalars().first():
         raise ContentBlockedLegalError("This content has been blocked due to a copyright or legal notice.")
 
-    # 5. Guarded asynchronous execution of yt-dlp library call with network sandbox
-    def _guarded_extract():
-        with safe_network_guard():
-            return extract_media_info(clean_url)
-
-    info_response = await asyncio.to_thread(_guarded_extract)
+    # 5. Asynchronous execution of yt-dlp library call
+    info_response = await asyncio.to_thread(extract_media_info, clean_url)
 
     return info_response
 

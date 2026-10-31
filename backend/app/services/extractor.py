@@ -1,7 +1,10 @@
+import hashlib
+import json
 import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+import redis
 import yt_dlp
 from yt_dlp.utils import DownloadError, ExtractorError
 
@@ -13,10 +16,22 @@ from app.core.errors import (
     RateLimitExceededError,
     UnsupportedUrlError,
 )
-from app.core.security import sanitize_display_title, sanitize_filename
+from app.core.security import normalize_video_url, sanitize_display_title, sanitize_filename
+from app.core.ssrf import safe_network_guard
 from app.schemas.extract import FormatOption, MediaInfoResponse
 
 logger = logging.getLogger("anystream.extractor")
+
+# Redis connection for caching extraction metadata
+try:
+    redis_client = redis.Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
+except Exception:
+    redis_client = None
 
 
 class SilentLogger:
@@ -76,6 +91,13 @@ def map_ytdlp_error(err: Exception) -> AppError:
 
     if "timed out" in err_lower or "timeout" in err_lower or "connection refused" in err_lower:
         return UnsupportedUrlError("Connection to the media host timed out. Please try again.")
+
+    if "signature" in err_lower or "extractor" in err_lower or "nsig" in err_lower:
+        return AppError(
+            status_code=502,
+            error_code="UPSTREAM_EXTRACTOR_DEPRECATED",
+            message="Upstream video provider updated their format. System is queued for extractor update.",
+        )
 
     logger.warning("Unmapped yt-dlp extraction error: %s", err_msg)
     return UnsupportedUrlError("Unable to retrieve information for this URL. Please verify the link is publicly accessible.")
@@ -240,12 +262,14 @@ def normalize_formats(formats: List[Dict[str, Any]], duration: int) -> List[Form
     return format_options
 
 
-def extract_media_info(url: str) -> MediaInfoResponse:
+def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoResponse:
     """
     Synchronously extracts media metadata using yt-dlp in Python library mode.
+    Caches successful extractions for CACHE_TTL_SECONDS and errors for CACHE_ERROR_TTL_SECONDS.
 
     Args:
         url: Validated, SSRF-checked public media URL.
+        bypass_cache: Set True to force fresh upstream extraction.
 
     Returns:
         MediaInfoResponse containing clean title, thumbnail, duration, and format options.
@@ -253,18 +277,56 @@ def extract_media_info(url: str) -> MediaInfoResponse:
     Raises:
         AppError: Mapped user-safe domain exception.
     """
+    canonical_url, _ = normalize_video_url(url)
+    url_hash = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
+    cache_key = f"cache:info:{url_hash}"
+    err_cache_key = f"cache:info:err:{url_hash}"
+
+    # 1. Check Redis cache
+    if not bypass_cache and redis_client:
+        try:
+            cached_json = redis_client.get(cache_key)
+            if cached_json:
+                logger.info("Cache HIT for media URL [%s]", canonical_url)
+                return MediaInfoResponse.model_validate_json(cached_json)
+
+            cached_err = redis_client.get(err_cache_key)
+            if cached_err:
+                err_data = json.loads(cached_err)
+                logger.info("Cache HIT (negative error cache) for media URL [%s]", canonical_url)
+                raise AppError(
+                    status_code=err_data.get("status_code", 400),
+                    error_code=err_data.get("error_code", "UNSUPPORTED_URL_OR_PLATFORM"),
+                    message=err_data.get("message", "Unable to extract media information."),
+                )
+        except AppError:
+            raise
+        except Exception as e:
+            logger.debug("Redis cache read failed: %s", str(e))
+
     ydl_opts = get_ydl_options()
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
-    except DownloadError as err:
-        raise map_ytdlp_error(err)
-    except ExtractorError as err:
-        raise map_ytdlp_error(err)
+        with safe_network_guard():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(url, download=False)
     except Exception as err:
-        logger.error("Unexpected error during media info extraction: %s", str(err), exc_info=True)
-        raise map_ytdlp_error(err)
+        app_err = map_ytdlp_error(err)
+        # Cache negative error for short TTL
+        if redis_client:
+            try:
+                redis_client.setex(
+                    err_cache_key,
+                    settings.CACHE_ERROR_TTL_SECONDS,
+                    json.dumps({
+                        "status_code": app_err.status_code,
+                        "error_code": app_err.error_code,
+                        "message": app_err.message,
+                    }),
+                )
+            except Exception:
+                pass
+        raise app_err
 
     if not info_dict:
         raise UnsupportedUrlError("Could not retrieve media details from this URL.")
@@ -298,7 +360,7 @@ def extract_media_info(url: str) -> MediaInfoResponse:
     raw_formats = info_dict.get("formats") or []
     clean_formats = normalize_formats(raw_formats, duration)
 
-    return MediaInfoResponse(
+    result = MediaInfoResponse(
         id=str(info_dict.get("id") or "media"),
         title=clean_title,
         url=str(info_dict.get("webpage_url") or url),
@@ -308,3 +370,13 @@ def extract_media_info(url: str) -> MediaInfoResponse:
         is_live=bool(info_dict.get("is_live")),
         formats=clean_formats,
     )
+
+    # Store successful extraction in Redis
+    if redis_client:
+        try:
+            redis_client.setex(cache_key, settings.CACHE_TTL_SECONDS, result.model_dump_json())
+            logger.info("Stored media info in Redis cache with TTL %ds for [%s]", settings.CACHE_TTL_SECONDS, canonical_url)
+        except Exception as e:
+            logger.debug("Failed to write to Redis cache: %s", str(e))
+
+    return result

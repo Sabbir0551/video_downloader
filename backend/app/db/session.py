@@ -43,11 +43,13 @@ SyncSessionLocal = sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency for yielding database session."""
+    """
+    FastAPI dependency yielding an async database session.
+    Endpoints commit explicit transactions. Ensures rollback on error and proper closure.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise
@@ -57,11 +59,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 @contextmanager
 def get_sync_db() -> Generator[Session, None, None]:
-    """Synchronous context manager for Celery workers."""
+    """
+    Synchronous context manager for Celery workers and migrations.
+    Rolls back uncommitted transactions on exception.
+    """
     session = SyncSessionLocal()
     try:
         yield session
-        session.commit()
     except Exception:
         session.rollback()
         raise
@@ -70,9 +74,11 @@ def get_sync_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Creates database tables if they do not exist."""
+    """Creates database tables if they do not exist. Fails loudly in production."""
     try:
         Base.metadata.create_all(bind=sync_engine)
         logger.info("Database tables verified/initialized.")
     except Exception as err:
-        logger.warning("Auto init_db note: %s", str(err))
+        logger.error("Database initialization error: %s", str(err))
+        if settings.ENVIRONMENT == "production":
+            raise RuntimeError(f"Database initialization failed in production: {str(err)}") from err

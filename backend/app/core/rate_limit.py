@@ -65,12 +65,21 @@ def check_rate_limit(
             # Fall back to in-memory on redis connection issues
             pass
 
-    # 2. In-memory sliding window fallback
-    timestamps = _memory_windows.setdefault(key, [])
-    # Prune old timestamps
+    # 2. In-memory sliding window fallback with proactive key pruning
     cutoff = now - window_seconds
+    timestamps = _memory_windows.setdefault(key, [])
     _memory_windows[key] = [t for t in timestamps if t > cutoff]
-    if len(_memory_windows[key]) >= max_requests:
+
+    # Prune stale keys if memory table grows
+    if len(_memory_windows) > 100:
+        stale_keys = [
+            k for k, ts in list(_memory_windows.items())
+            if not ts or ts[-1] <= cutoff
+        ]
+        for k in stale_keys:
+            _memory_windows.pop(k, None)
+
+    if len(_memory_windows.get(key, [])) >= max_requests:
         raise RateLimitExceededError(
             f"Too many requests to /{endpoint_key}. Rate limit is {max_requests} per minute.",
             details={"limit": max_requests, "window_seconds": window_seconds},

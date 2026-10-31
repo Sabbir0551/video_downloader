@@ -365,3 +365,25 @@ def clean_expired_downloads_task() -> Dict[str, Any]:
     logger.info("Celery Beat Janitor: %d files evicted, %d jobs transitioned to EXPIRED.", evicted_files, expired_jobs_count)
     return {"evicted_files": evicted_files, "expired_jobs": expired_jobs_count}
 
+
+@celery_app.task(name="app.worker.tasks.check_ytdlp_version_task")
+def check_ytdlp_version_task() -> Dict[str, Any]:
+    """Periodic task checking PyPI for newer versions of yt-dlp to anticipate extractor breakages."""
+    current_ver = getattr(yt_dlp.version, "__version__", "unknown")
+    latest_ver = current_ver
+    try:
+        import urllib.request
+        with urllib.request.urlopen("https://pypi.org/pypi/yt-dlp/json", timeout=5.0) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                latest_ver = data.get("info", {}).get("version", current_ver)
+                if redis_client:
+                    redis_client.set("ytdlp:latest_version", latest_ver)
+                if latest_ver != current_ver:
+                    logger.warning("yt-dlp update available: current=%s, latest=%s", current_ver, latest_ver)
+    except Exception as e:
+        logger.debug("yt-dlp version check skipped: %s", str(e))
+
+    return {"current": current_ver, "latest": latest_ver}
+
+

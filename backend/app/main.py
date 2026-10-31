@@ -1,4 +1,5 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -6,21 +7,33 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.endpoints.health import router as root_health_router
 from app.api.v1.router import api_v1_router
 from app.api.web import router as web_router
 from app.core.config import settings
 from app.core.errors import AppError
+from app.core.logging import request_id_ctx, setup_structured_logging
 from app.db.session import init_db
 from app.middlewares.security_headers import SecurityHeadersMiddleware
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Configure structured JSON logging
+setup_structured_logging(debug=settings.DEBUG)
 logger = logging.getLogger("anystream.main")
+
+
+class RequestTracingMiddleware(BaseHTTPMiddleware):
+    """Assigns unique request UUID and attaches it to logging context and response headers."""
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        token = request_id_ctx.set(req_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = req_id
+            return response
+        finally:
+            request_id_ctx.reset(token)
 
 
 @asynccontextmanager
@@ -30,7 +43,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         init_db()
     except Exception as e:
-        logger.warning("Database initialization note: %s", str(e))
+        logger.error("Database initialization failed: %s", str(e))
+        if settings.ENVIRONMENT == "production":
+            raise RuntimeError(f"Database initialization failure in production: {str(e)}") from e
     yield
     logger.info("Shutting down %s...", settings.PROJECT_NAME)
 
@@ -46,7 +61,8 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 1. Security Headers Middleware
+    # 1. Tracing & Security Middlewares
+    app.add_middleware(RequestTracingMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
     # 2. Strict CORS Configuration
