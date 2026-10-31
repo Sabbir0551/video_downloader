@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     CACHE_ERROR_TTL_SECONDS: int = 30  # Max 30 seconds for failed extractions
 
     # Worker & Storage Quotas
+    STORAGE_BACKEND: str = "local"  # "local" or "r2"
+    R2_ACCOUNT_ID: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_BUCKET: str = "anystream-files"
     STORAGE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../storage/tmp"))
     MAX_FILE_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
     MAX_VIDEO_DURATION_SECONDS: int = 10800  # 3 hours
@@ -62,7 +67,7 @@ class Settings(BaseSettings):
     ]
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",

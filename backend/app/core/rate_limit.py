@@ -11,7 +11,12 @@ from app.core.security import hash_ip
 
 # Optional Redis connection for distributed rate limiting
 try:
-    redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client = redis.Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
 except Exception:
     redis_client = None
 

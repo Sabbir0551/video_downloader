@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 
 import redis
 from fastapi import APIRouter, Depends, Header, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from app.models.takedown import TakedownRecord, TakedownStatus
 from app.schemas.common import ErrorResponse
 from app.schemas.job import CreateJobRequest, JobStatusResponse
 from app.services.extractor import extract_media_info
+from app.services.storage import get_storage
 from app.worker.celery_app import celery_app
 from app.worker.tasks import download_media_task
 
@@ -43,7 +44,12 @@ router = APIRouter()
 
 # Redis client for retrieving live progress
 try:
-    redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client = redis.Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
 except Exception:
     redis_client = None
 
@@ -308,16 +314,29 @@ async def download_file(
     if not job or job.status != JobStatus.COMPLETED or not job.file_path:
         raise JobNotFoundError("The requested file has expired or was pruned by the cleanup janitor.")
 
-    # 3. Check physical file exists on disk
-    if not os.path.exists(job.file_path):
+    # 3. Check storage backend for file existence
+    storage = get_storage()
+    if not storage.exists(job.file_path):
         raise JobNotFoundError("The requested file has expired or was pruned by the cleanup janitor.")
 
     # 4. Construct RFC 5987 / RFC 6266 safe filename (Strict ASCII in filename, UTF-8 in filename*)
     file_ext = job.file_ext or os.path.splitext(job.file_path)[1].lstrip(".") or "mp4"
     safe_filename = sanitize_filename(job.title or "media_download", file_ext)
-    encoded_filename = urllib.parse.quote(safe_filename)
 
-    # ASCII-only fallback filename to avoid Starlette Latin-1 header encoding crashes with Unicode
+    # If storage backend supports direct presigned URL (e.g. Cloudflare R2), redirect client
+    presigned_url = storage.get_presigned_url(
+        object_key=job.file_path,
+        filename=safe_filename,
+        expiry_seconds=settings.JOB_EXPIRY_MINUTES * 60,
+    )
+    if presigned_url:
+        return RedirectResponse(
+            url=presigned_url,
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+
+    # LocalStorage: serve directly with FileResponse
+    encoded_filename = urllib.parse.quote(safe_filename)
     ascii_clean = safe_filename.encode("ascii", "ignore").decode("ascii").strip(" ._")
     base_ascii = os.path.splitext(ascii_clean)[0].strip(" ._") if ascii_clean else ""
     ascii_filename = f"{base_ascii}.{file_ext}" if base_ascii else f"video_download.{file_ext}"
@@ -374,11 +393,12 @@ async def cancel_download_job(
         except Exception:
             pass
 
-    # Delete physical file on disk if exists
-    if job.file_path and os.path.exists(job.file_path):
+    # Delete storage file if exists
+    storage = get_storage()
+    if job.file_path:
         try:
-            os.remove(job.file_path)
-        except OSError:
+            storage.delete(job.file_path)
+        except Exception:
             pass
 
     # Delete any partial fragments matching {job_id}*

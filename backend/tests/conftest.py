@@ -27,7 +27,12 @@ def clean_test_environment():
     """Ensures clean database and resets rate limits before each test."""
     _memory_windows.clear()
     try:
-        r = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        r = redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=0.2,
+            socket_timeout=0.2,
+        )
         keys = r.keys("ratelimit:*")
         if keys:
             r.delete(*keys)
@@ -49,7 +54,12 @@ def clean_test_environment():
 
     _memory_windows.clear()
     try:
-        r = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        r = redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=0.2,
+            socket_timeout=0.2,
+        )
         keys = r.keys("ratelimit:*")
         if keys:
             r.delete(*keys)

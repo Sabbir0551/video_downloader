@@ -15,13 +15,19 @@ from app.core.security import generate_download_token, sanitize_filename
 from app.db.session import get_sync_db
 from app.models.job import DownloadJob, JobStatus
 from app.services.extractor import SilentLogger, map_ytdlp_error
+from app.services.storage import get_storage
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger("anystream.worker")
 
 # Redis client for high-frequency progress publishing
 try:
-    redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client = redis.Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
 except Exception as e:
     redis_client = None
     logger.warning("Redis client initialization deferred: %s", str(e))
@@ -167,6 +173,21 @@ def download_media_task(
         actual_size = os.path.getsize(final_path)
         file_ext = os.path.splitext(final_path)[1].lstrip(".")
 
+        # Upload file to storage backend using random ID key (never video title)
+        storage = get_storage()
+        object_key = f"{job_id}.{file_ext}"
+        storage_path = storage.upload(final_path, object_key)
+
+        # If R2 storage, delete local temporary file and store only object key in job record
+        if settings.STORAGE_BACKEND.lower() == "r2":
+            try:
+                os.remove(final_path)
+            except OSError:
+                pass
+            stored_file_path = object_key
+        else:
+            stored_file_path = storage_path
+
         # Generate signed expiring download token
         with get_sync_db() as db:
             job = db.get(DownloadJob, uuid.UUID(job_id))
@@ -180,7 +201,7 @@ def download_media_task(
             download_url = f"/api/v1/downloads/{job_id}/file?token={token}"
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
-            job.file_path = final_path
+            job.file_path = stored_file_path
             job.file_size = actual_size
             job.file_ext = file_ext
             job.download_url = download_url
@@ -241,6 +262,7 @@ def clean_expired_downloads_task() -> Dict[str, Any]:
     evicted_files = 0
     expired_jobs_count = 0
 
+    storage = get_storage()
     with get_sync_db() as db:
         # Find jobs past their expiration timestamp that are not yet marked EXPIRED
         expired_stmt = select(DownloadJob).where(
@@ -250,15 +272,15 @@ def clean_expired_downloads_task() -> Dict[str, Any]:
         expired_jobs = db.execute(expired_stmt).scalars().all()
 
         for job in expired_jobs:
-            # Delete file on disk if exists
-            if job.file_path and os.path.exists(job.file_path):
+            # Delete file in storage backend if exists
+            if job.file_path:
                 try:
-                    os.remove(job.file_path)
+                    storage.delete(job.file_path)
                     evicted_files += 1
-                except OSError as e:
-                    logger.warning("Error deleting expired file %s: %s", job.file_path, str(e))
+                except Exception as e:
+                    logger.warning("Error deleting expired file %s from storage: %s", job.file_path, str(e))
 
-            # Delete any leftover partial fragments for this job_id
+            # Delete any leftover partial fragments for this job_id on local disk
             for partial in glob.glob(os.path.join(settings.STORAGE_DIR, f"{job.id}*")):
                 try:
                     os.remove(partial)
