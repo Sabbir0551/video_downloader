@@ -4,14 +4,12 @@ import { render, screen } from "@testing-library/react";
 import { Footer } from "../Footer";
 
 describe("Footer Component", () => {
-  const originalEnv = process.env.NODE_ENV;
-
   afterEach(() => {
-    process.env.NODE_ENV = originalEnv;
+    vi.unstubAllEnvs();
   });
 
   it("renders OpenAPI Swagger link in development environment", () => {
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     render(<Footer lang="en" />);
 
     expect(screen.getByText("OpenAPI Swagger")).toBeInTheDocument();
@@ -21,7 +19,7 @@ describe("Footer Component", () => {
   });
 
   it("hides OpenAPI Swagger link when NODE_ENV is production", () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     render(<Footer lang="en" />);
 
     expect(screen.queryByText("OpenAPI Swagger")).not.toBeInTheDocument();
@@ -31,7 +29,7 @@ describe("Footer Component", () => {
   });
 
   it("renders Bengali legal notices and links when lang is bn", () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     render(<Footer lang="bn" />);
 
     expect(screen.queryByText("OpenAPI Swagger")).not.toBeInTheDocument();

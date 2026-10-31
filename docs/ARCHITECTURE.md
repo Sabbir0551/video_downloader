@@ -88,7 +88,7 @@ flowchart TD
 ### 3.3 Storage & File Lifecycle
 - **File Naming**: Absolute decoupling from user input. Files are saved as `<storage_dir>/<job_uuid>.<ext>`. Original titles are sanitized using strict alphanumeric + unicode filtering for the `Content-Disposition: attachment; filename="..."` header only.
 - **TTL & Cleanup**:
-  - Every file record in Postgres has an `expires_at` timestamp (default: `created_at + 20 minutes`).
+  - Every file record in Postgres has an `expires_at` timestamp (default: `created_at + 30 minutes`).
   - An independent `janitor` daemon or Celery Beat periodic task runs every 5 minutes:
     - Finds all jobs where `expires_at < NOW()` or status is `failed`/`cancelled`.
     - Deletes files from `/storage/tmp`.
@@ -149,7 +149,7 @@ sequenceDiagram
     alt URL is Blocked / Takedown Active
         API-->>User: 451 Unavailable For Legal Reasons
     else URL Clear
-        API->>DB: Insert Job (status: "QUEUED", expires_at: NOW + 20m)
+        API->>DB: Insert Job (status: "QUEUED", expires_at: NOW + 30m)
         API->>Redis: Enqueue Job Task (job_id)
         API-->>User: 202 Accepted { job_id: "uuid" }
     end

@@ -13,6 +13,7 @@ os.environ["IP_HASH_SALT"] = "test-salt-for-unit-testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["DATABASE_SYNC_URL"] = "sqlite:///./test.db"
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+os.environ["STORAGE_BACKEND"] = "local"
 
 import pytest
 import redis

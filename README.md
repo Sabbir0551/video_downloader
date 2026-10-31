@@ -1,15 +1,15 @@
 # AnyStream Video Platform - Monorepo
 
-A security-first, high-performance video downloader platform comprising a unified FastAPI backend, Next.js web application, and Flutter mobile application.
+A security-first, high-performance video downloader platform comprising a unified FastAPI backend, Celery worker pipeline, Next.js web application, and planned mobile support.
 
 ---
 
 ## 1. Project Overview & Capabilities
 
-- **Unified API Gateway**: Serves both Web and Mobile clients with identical data contracts.
+- **Unified API Gateway**: Serves web and API clients with identical contracts.
 - **Pure Python Execution**: Uses `yt-dlp` as a library without shell string interpolations.
-- **SSRF Defense-in-Depth**: Strict URL scheme whitelisting, DNS pre-resolution, and comprehensive CIDR blacklisting blocking private, loopback, link-local, and cloud metadata IP ranges.
-- **Isolated Workers**: Non-root containerized Celery workers with CPU/memory limits and dedicated ephemeral storage with automated 20-minute eviction.
+- **SSRF Defense-in-Depth**: Strict URL scheme allowlisting, DNS pre-resolution, and comprehensive CIDR blacklisting blocking private, loopback, link-local, and cloud metadata IP ranges.
+- **Isolated Workers**: Containerized Celery workers with CPU/memory limits and dedicated ephemeral storage with automated 30-minute eviction (`JOB_EXPIRY_MINUTES = 30`).
 - **Zero Raw PII Storage**: Client IPs are non-reversibly hashed via HMAC-SHA256 with rotating salts.
 - **Real-Time Progress**: High-efficiency Server-Sent Events (SSE) with HTTP polling fallback.
 - **Multi-Language & Accessible**: English (`en`) and Bangla (`bn`) internationalization with WCAG AA compliance.
@@ -21,71 +21,87 @@ A security-first, high-performance video downloader platform comprising a unifie
 
 ```
 .
-├── backend/                  # FastAPI Backend & Worker Pipeline
+├── backend/                  # FastAPI Backend & Celery Worker Pipeline
 │   ├── app/
+│   │   ├── api/              # API router endpoints (/info, /downloads, /jobs, /takedown, /health)
 │   │   ├── core/             # Security, config, SSRF validator, error codes
 │   │   │   ├── config.py     # Pydantic BaseSettings
 │   │   │   ├── errors.py     # Custom structured HTTP exceptions
 │   │   │   ├── security.py   # IP hashing, filename sanitizer, token signing
 │   │   │   └── ssrf.py       # CIDR blacklist & DNS resolver guard
-│   │   ├── db/               # SQLAlchemy async session management
-│   │   ├── models/           # DeclarativeBase ORM entities
-│   │   │   ├── job.py        # DownloadJob entity & JobStatus enum
-│   │   │   ├── takedown.py   # TakedownRecord entity & status
-│   │   │   └── abuse.py      # Salted HMAC IP abuse audit trail
+│   │   ├── db/               # SQLAlchemy async & sync session management
+│   │   ├── models/           # DeclarativeBase ORM entities (job, takedown, abuse)
 │   │   ├── schemas/          # Pydantic v2 request/response schemas
-│   │   │   ├── extract.py    # URL inspection & format contracts
-│   │   │   ├── job.py        # Job submission & SSE progress event schemas
-│   │   │   ├── takedown.py   # Legal claim submission contracts
-│   │   │   └── health.py     # Diagnostics contract
-│   │   └── main.py           # (Phase 2)
+│   │   ├── services/         # Extraction, storage, cleaner, and rate limiting
+│   │   ├── worker/           # Celery application & download execution tasks
+│   │   └── main.py           # FastAPI application entrypoint
 │   ├── tests/                # Automated pytest suite
-│   │   ├── test_ssrf.py      # SSRF & IP CIDR unit tests
-│   │   ├── test_security.py  # Path traversal & cryptographic token tests
-│   │   ├── test_schemas.py   # Input validation & injection rejection tests
-│   │   └── test_models.py    # SQLAlchemy entity tests
 │   ├── requirements.txt      # Production dependencies
 │   └── requirements-dev.txt  # Testing and linting suite
-├── frontend/                 # (Phase 3: Next.js App Router, Tailwind CSS, i18n)
-├── mobile/                   # (Phase 4: Flutter Clean Architecture, Download Manager)
+├── web/                      # Next.js 16 App Router Frontend (React 19, Tailwind CSS v4, i18n)
+│   ├── src/
+│   │   ├── app/              # App router pages (Home, DMCA, Privacy, Terms)
+│   │   ├── components/       # Accessible UI components (URL input, format picker, progress)
+│   │   ├── lib/              # API client, i18n translations (EN/BN), local storage
+│   │   └── types/            # TypeScript API contracts
+│   ├── tests/                # Playwright E2E tests
+│   └── package.json          # pnpm package configuration
 ├── infra/                    # Docker, Nginx, and deployment configs
 │   └── docker-compose.yml    # Complete orchestration definition
 └── docs/                     # Specifications and architecture docs
     ├── ARCHITECTURE.md       # High-level architecture and data flows
     ├── THREAT_MODEL.md       # STRIDE & DREAD security analysis
     └── api/
-        └── openapi.yaml      # OpenAPI 3.1.0 specification
+        └── openapi.yaml      # OpenAPI 3.1.0 specification (synced from FastAPI)
 ```
+
+> **Note on Mobile Client**: A Flutter-based mobile client is planned for a future release. Currently, the Next.js web application is built as a fully responsive, mobile-first Progressive Web Application (PWA) compatible with all modern mobile browsers.
 
 ---
 
-## 3. Phase 1 Deliverables Summary
+## 3. API Contract Summary
 
-| Artifact | Location | Description |
+The API provides standardized endpoints for media extraction, asynchronous downloading, progress monitoring, and takedown claims:
+
+| Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| **Architecture Specification** | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System components, sequence flows, data lifecycle, and tech justifications. |
-| **Threat Model** | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | STRIDE / DREAD threat modeling, SSRF defenses, and container isolation. |
-| **OpenAPI 3.1 Spec** | [`docs/api/openapi.yaml`](docs/api/openapi.yaml) | Complete API schema, error models, and SSE contracts. |
-| **SQLAlchemy Data Models** | [`backend/app/models/`](backend/app/models/) | `DownloadJob`, `TakedownRecord`, `AbuseLog` with full typing. |
-| **Pydantic Validation Schemas** | [`backend/app/schemas/`](backend/app/schemas/) | Strictly validated data transfer objects rejecting shell characters and invalid protocols. |
-| **SSRF & Security Core** | [`backend/app/core/`](backend/app/core/) | Comprehensive CIDR blocker, signed expiring download tokens, and RFC-compliant filename sanitizer. |
-| **Unit Test Suite** | [`backend/tests/`](backend/tests/) | Automated unit tests for SSRF, security, schemas, and models. |
+| `/health`, `/api/v1/health` | `GET` | Service health, dependency status (PostgreSQL, Redis), disk space, and worker reachability. |
+| `/api/v1/info`, `/api/v1/extract` | `POST` | Inspect media URL, validate against SSRF, and return available formats/qualities. |
+| `/api/v1/downloads`, `/api/v1/jobs` | `POST` | Submit an asynchronous download job; returns job ID and job access token. |
+| `/api/v1/downloads/{job_id}` | `GET` | Retrieve download job status and progress details. |
+| `/api/v1/downloads/{job_id}/stream` | `GET` | Stream real-time progress via Server-Sent Events (SSE). |
+| `/api/v1/downloads/{job_id}/file` | `GET` | Stream the downloaded media file using a signed expiring token. |
+| `/api/v1/downloads/{job_id}` | `DELETE` | Cancel an in-flight job and purge its artifacts. |
+| `/api/v1/takedown` | `POST` | File a DMCA or legal takedown notice. |
 
 ---
 
 ## 4. Running the Tests
 
-To execute the test suite (once Python 3.12 virtual environment is created):
+### Backend Tests (pytest)
 
 ```bash
 cd backend
-python -m venv venv
+# Create virtual environment if needed
+python -m venv .venv
 # On Windows:
-.\venv\Scripts\activate
+.\.venv\Scripts\activate
 # On Linux/macOS:
-# source venv/bin/activate
+source .venv/bin/activate
 
-pip install -r requirements-dev.txt
+pip install -r requirements.txt -r requirements-dev.txt
 pytest -v
 ```
 
+### Frontend Tests (Vitest & Playwright)
+
+```bash
+cd web
+pnpm install
+# Run unit & component tests
+pnpm test
+# Run TypeScript compilation & production build
+pnpm run build
+# Run Playwright E2E tests (requires running backend & web dev server)
+pnpm run test:e2e
+```
