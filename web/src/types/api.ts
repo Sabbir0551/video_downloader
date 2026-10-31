@@ -62,6 +62,7 @@ export interface JobStatusResponse {
   download_url?: string | null;
   created_at: string;
   expires_at: string;
+  job_access_token?: string | null;
   error_code?: string | null;
   error_message?: string | null;
 }

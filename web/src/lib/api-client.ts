@@ -43,13 +43,18 @@ export class AnyStreamApiClient {
   /**
    * Resolves relative download paths (e.g. /api/v1/downloads/...) to absolute URLs.
    */
-  public resolveDownloadUrl(downloadUrl: string): string {
+  public resolveDownloadUrl(downloadUrl: string, accessToken?: string | null): string {
     if (!downloadUrl) return "";
-    if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) {
-      return downloadUrl;
+    let fullUrl = downloadUrl;
+    if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+      const cleanPath = downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`;
+      fullUrl = `${this.baseUrl}${cleanPath}`;
     }
-    const cleanPath = downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`;
-    return `${this.baseUrl}${cleanPath}`;
+    if (accessToken && !fullUrl.includes("token=")) {
+      const sep = fullUrl.includes("?") ? "&" : "?";
+      fullUrl = `${fullUrl}${sep}token=${encodeURIComponent(accessToken)}`;
+    }
+    return fullUrl;
   }
 
   private async request<T>(
@@ -130,10 +135,16 @@ export class AnyStreamApiClient {
   /**
    * Poll download job status by UUID or Video URL
    */
-  public async getJobStatus(jobIdOrUrl: string): Promise<JobStatusResponse> {
+  public async getJobStatus(jobIdOrUrl: string, accessToken?: string | null): Promise<JobStatusResponse> {
     const encoded = encodeURIComponent(jobIdOrUrl.trim());
-    return this.request<JobStatusResponse>(`/api/v1/downloads/${encoded}`, {
+    const headers: Record<string, string> = {};
+    if (accessToken) {
+      headers["X-Job-Token"] = accessToken;
+    }
+    const query = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
+    return this.request<JobStatusResponse>(`/api/v1/downloads/${encoded}${query}`, {
       method: "GET",
+      headers,
       cache: "no-store",
     });
   }
@@ -141,9 +152,15 @@ export class AnyStreamApiClient {
   /**
    * Cancel in-flight download job
    */
-  public async cancelJob(jobId: string): Promise<JobStatusResponse> {
-    return this.request<JobStatusResponse>(`/api/v1/downloads/${jobId}`, {
+  public async cancelJob(jobId: string, accessToken?: string | null): Promise<JobStatusResponse> {
+    const headers: Record<string, string> = {};
+    if (accessToken) {
+      headers["X-Job-Token"] = accessToken;
+    }
+    const query = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
+    return this.request<JobStatusResponse>(`/api/v1/downloads/${jobId}${query}`, {
       method: "DELETE",
+      headers,
     });
   }
 

@@ -20,6 +20,7 @@ import {
 
 interface DownloadProgressProps {
   jobId: string;
+  accessToken?: string | null;
   videoTitle: string;
   thumbnailUrl?: string | null;
   qualityLabel?: string | null;
@@ -30,6 +31,7 @@ interface DownloadProgressProps {
 
 export function DownloadProgress({
   jobId,
+  accessToken,
   videoTitle,
   thumbnailUrl,
   qualityLabel,
@@ -54,58 +56,103 @@ export function DownloadProgress({
 
   useEffect(() => {
     let consecutiveErrors = 0;
+    let isTerminated = false;
+    let eventSource: EventSource | null = null;
+    let fallbackInterval: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
-      try {
-        const data = await apiClient.getJobStatus(jobId);
-        setJob(data);
-        consecutiveErrors = 0;
+    const onJobUpdate = (data: JobStatusResponse) => {
+      setJob(data);
+      consecutiveErrors = 0;
 
-        // If completed, save to local history once
-        if (data.status === JobStatus.COMPLETED && data.download_url && !hasSavedToHistoryRef.current) {
-          hasSavedToHistoryRef.current = true;
-          saveHistoryItem({
-            id: data.job_id,
-            title: videoTitle,
-            url: data.download_url,
-            thumbnailUrl: thumbnailUrl,
-            qualityLabel: qualityLabel,
-            fileSize: data.file_size,
-            downloadUrl: data.download_url,
-            timestamp: Date.now(),
-          });
-        }
+      // If completed, save to local history once
+      if (data.status === JobStatus.COMPLETED && data.download_url && !hasSavedToHistoryRef.current) {
+        hasSavedToHistoryRef.current = true;
+        saveHistoryItem({
+          id: data.job_id,
+          title: videoTitle,
+          url: data.download_url,
+          thumbnailUrl: thumbnailUrl,
+          qualityLabel: qualityLabel,
+          fileSize: data.file_size,
+          downloadUrl: data.download_url,
+          timestamp: Date.now(),
+        });
+      }
 
-        // Stop polling on terminal states
-        if (
-          data.status === JobStatus.COMPLETED ||
-          data.status === JobStatus.FAILED ||
-          data.status === JobStatus.CANCELLED ||
-          data.status === JobStatus.EXPIRED
-        ) {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          if (data.status === JobStatus.FAILED) {
-            setErrorMsg(data.error_message || getErrorMessage(data.error_code, lang));
-          }
-        }
-      } catch (err: unknown) {
-        consecutiveErrors++;
-        if (consecutiveErrors > 15) {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          setErrorMsg(t.errors.DEFAULT);
+      // Stop tracking on terminal states
+      if (
+        data.status === JobStatus.COMPLETED ||
+        data.status === JobStatus.FAILED ||
+        data.status === JobStatus.CANCELLED ||
+        data.status === JobStatus.EXPIRED
+      ) {
+        isTerminated = true;
+        if (eventSource) eventSource.close();
+        if (fallbackInterval) clearInterval(fallbackInterval);
+        if (data.status === JobStatus.FAILED) {
+          setErrorMsg(data.error_message || getErrorMessage(data.error_code, lang));
         }
       }
     };
 
-    // Immediate initial poll
-    poll();
-    // 1-second interval polling
-    pollIntervalRef.current = setInterval(poll, 1000);
+    const startPollingFallback = () => {
+      if (fallbackInterval || isTerminated) return;
+      const poll = async () => {
+        if (isTerminated) return;
+        try {
+          const data = accessToken
+            ? await apiClient.getJobStatus(jobId, accessToken)
+            : await apiClient.getJobStatus(jobId);
+          onJobUpdate(data);
+        } catch {
+          consecutiveErrors++;
+          if (consecutiveErrors > 15) {
+            if (fallbackInterval) clearInterval(fallbackInterval);
+            setErrorMsg(t.errors.DEFAULT);
+          }
+        }
+      };
+      poll();
+      fallbackInterval = setInterval(poll, 1000);
+      pollIntervalRef.current = fallbackInterval;
+    };
+
+    // Attempt Server-Sent Events (SSE) streaming with transparent polling fallback
+    if (typeof window !== "undefined" && "EventSource" in window) {
+      try {
+        const streamUrl = `${apiClient.getBaseUrl()}/api/v1/downloads/${jobId}/stream${accessToken ? `?token=${encodeURIComponent(accessToken)}` : ""}`;
+        eventSource = new EventSource(streamUrl);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data: JobStatusResponse = JSON.parse(event.data);
+            onJobUpdate(data);
+          } catch {
+            // Keepalive or unparseable frame
+          }
+        };
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          startPollingFallback();
+        };
+      } catch {
+        startPollingFallback();
+      }
+    } else {
+      startPollingFallback();
+    }
 
     return () => {
+      isTerminated = true;
+      if (eventSource) eventSource.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, [jobId, videoTitle, thumbnailUrl, qualityLabel, lang, t]);
+  }, [jobId, accessToken, videoTitle, thumbnailUrl, qualityLabel, lang, t]);
 
   const handleCancel = async () => {
     if (isCancelling) return;
@@ -113,7 +160,11 @@ export function DownloadProgress({
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
     try {
-      await apiClient.cancelJob(jobId);
+      if (accessToken) {
+        await apiClient.cancelJob(jobId, accessToken);
+      } else {
+        await apiClient.cancelJob(jobId);
+      }
     } catch {
       // Ignore cancellation failure if already terminated
     } finally {
@@ -125,7 +176,11 @@ export function DownloadProgress({
   const progressPct = Math.min(100, Math.max(0, Math.round(job?.progress || 0)));
   const isCompleted = job?.status === JobStatus.COMPLETED;
   const isFailed = job?.status === JobStatus.FAILED || job?.status === JobStatus.CANCELLED || job?.status === JobStatus.EXPIRED;
-  const downloadAbsoluteUrl = job?.download_url ? apiClient.resolveDownloadUrl(job.download_url) : "";
+  const downloadAbsoluteUrl = job?.download_url
+    ? accessToken
+      ? apiClient.resolveDownloadUrl(job.download_url, accessToken)
+      : apiClient.resolveDownloadUrl(job.download_url)
+    : "";
 
   return (
     <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-md transition-all">

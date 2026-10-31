@@ -37,6 +37,7 @@ export default function HomePage() {
   const [isStartingJob, setIsStartingJob] = useState<boolean>(false);
   const [mediaInfo, setMediaInfo] = useState<MediaInfoResponse | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobToken, setActiveJobToken] = useState<string | null>(null);
   const [selectedQualityLabel, setSelectedQualityLabel] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -120,6 +121,7 @@ export default function HomePage() {
         quality_label: label,
       });
       setActiveJobId(job.job_id);
+      setActiveJobToken(job.job_access_token || null);
     } catch (err: unknown) {
       if (err instanceof ApiClientError) {
         setErrorMessage(getErrorMessage(err.errorCode, lang));
@@ -135,14 +137,17 @@ export default function HomePage() {
 
   const handleCancelDownload = () => {
     setActiveJobId(null);
+    setActiveJobToken(null);
   };
 
   const handleRetryDownload = () => {
     setActiveJobId(null);
+    setActiveJobToken(null);
   };
 
   const handleResetToSearch = () => {
     setActiveJobId(null);
+    setActiveJobToken(null);
     setMediaInfo(null);
     setErrorMessage(null);
   };
@@ -215,6 +220,7 @@ export default function HomePage() {
 
               <DownloadProgress
                 jobId={activeJobId}
+                accessToken={activeJobToken}
                 videoTitle={mediaInfo.title}
                 thumbnailUrl={mediaInfo.thumbnail_url}
                 qualityLabel={selectedQualityLabel}
