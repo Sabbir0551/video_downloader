@@ -29,9 +29,12 @@ services:
     environment:
       - ENVIRONMENT=production
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-anystream_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anystream_db}
+      - DATABASE_SYNC_URL=postgresql://${POSTGRES_USER:-anystream_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anystream_db}
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
       - IP_HASH_SALT=${IP_HASH_SALT}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      - JOB_EXPIRY_MINUTES=30
     volumes:
       - temp_storage:/storage/tmp
     depends_on:
@@ -56,6 +59,8 @@ services:
       - DATABASE_SYNC_URL=postgresql://${POSTGRES_USER:-anystream_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anystream_db}
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
+      - IP_HASH_SALT=${IP_HASH_SALT}
+      - JOB_EXPIRY_MINUTES=30
     volumes:
       - temp_storage:/storage/tmp
     # Resource Sandbox Constraints
@@ -67,31 +72,40 @@ services:
     user: "10001:10001"
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    read_only: false
     tmpfs:
       - /tmp:size=512M,mode=1777
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - internal_net
     restart: unless-stopped
 
-  # Automated File Eviction / Janitor Daemon
-  janitor:
+  # Celery Beat Scheduler (Periodic Janitor Eviction)
+  beat:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    container_name: anystream_janitor
-    command: python -m app.services.cleaner
+    container_name: anystream_beat
+    command: celery -A app.worker.celery_app beat --loglevel=info
     environment:
-      - DATABASE_SYNC_URL=postgresql://anystream_user:secret_pg_pass@postgres:5432/anystream_db
-      - STORAGE_DIR=/storage/tmp
-      - JOB_EXPIRY_MINUTES=20
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-anystream_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anystream_db}
+      - DATABASE_SYNC_URL=postgresql://${POSTGRES_USER:-anystream_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anystream_db}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - IP_HASH_SALT=${IP_HASH_SALT}
+      - JOB_EXPIRY_MINUTES=30
     volumes:
       - temp_storage:/storage/tmp
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - internal_net
     restart: unless-stopped
@@ -99,11 +113,12 @@ services:
   # Web Frontend (Next.js)
   web:
     build:
-      context: ../frontend
+      context: ../web
       dockerfile: Dockerfile
     container_name: anystream_web
     environment:
-      - NEXT_PUBLIC_API_URL=https://api.anystream.local
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
     networks:
       - internal_net
     restart: unless-stopped
@@ -119,7 +134,7 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U anystream_user -d anystream_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-anystream_user} -d ${POSTGRES_DB:-anystream_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -147,10 +162,8 @@ networks:
     driver: bridge
   internal_net:
     driver: bridge
-    internal: false # Requires internet for worker to download external media
 
 volumes:
   pg_data:
   redis_data:
   temp_storage:
-

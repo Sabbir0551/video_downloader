@@ -46,6 +46,8 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  /* Standalone output for container deployment */
+  output: "standalone",
   /* External video thumbnail image domains */
   images: {
     remotePatterns: [

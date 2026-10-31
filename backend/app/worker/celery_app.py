@@ -26,6 +26,11 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     result_expires=1800,       # 30 minutes
+    task_default_queue="media_downloads",
+    task_routes={
+        "app.worker.tasks.download_media_task": {"queue": "media_downloads"},
+        "app.worker.tasks.*": {"queue": "media_downloads"},
+    },
     # Periodic Celery Beat Schedule (Janitor file cleanup)
     beat_schedule={
         "clean-expired-downloads-every-5-minutes": {
