@@ -112,3 +112,39 @@ def test_dns_rebinding_to_private_ip(monkeypatch):
         validate_url_security("https://attacker-controlled-domain.com/video")
     assert "resolves to a restricted or private IP destination" in exc_info.value.message
 
+
+def test_ipv6_edge_cases_6to4_nat64_teredo():
+    """Verify IPv6 edge cases including 6to4, NAT64, and Teredo are blocked."""
+    edge_cases = [
+        "2002:c0a8:0101::1",  # 6to4 embedding 192.168.1.1
+        "2002:7f00:0001::",   # 6to4 embedding 127.0.0.1
+        "64:ff9b::127.0.0.1", # NAT64 embedding 127.0.0.1
+        "64:ff9b::10.0.0.1",  # NAT64 embedding 10.0.0.1
+        "2001:0000:4136:e378:8000:63bf:3fff:fdd2", # Teredo
+    ]
+    for ip_str in edge_cases:
+        ip_obj = ipaddress.ip_address(ip_str)
+        assert is_ip_forbidden(ip_obj) is True, f"Failed to identify {ip_str} as forbidden"
+
+
+def test_safe_network_guard_intercepts_dns_rebinding_and_redirects():
+    """Verify safe_network_guard raises SSRFValidationError when connection attempts loopback/private."""
+    import socket
+    from app.core.ssrf import safe_network_guard
+
+    with safe_network_guard():
+        # Attempting to resolve loopback host inside guard
+        with pytest.raises(SSRFValidationError) as exc:
+            socket.getaddrinfo("127.0.0.1", 80)
+        assert "SSRF TOCTOU Guard" in exc.value.message
+
+        # Attempting to connect to loopback inside guard
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(SSRFValidationError) as exc:
+                s.connect(("127.0.0.1", 80))
+            assert "SSRF Connection Guard" in exc.value.message
+        finally:
+            s.close()
+
+

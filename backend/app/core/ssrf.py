@@ -1,6 +1,7 @@
+from contextlib import contextmanager
 import ipaddress
 import socket
-from typing import List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from app.core.config import settings
@@ -34,6 +35,12 @@ FORBIDDEN_NETWORKS: List[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
     ipaddress.ip_network("2001:db8::/32"),      # Documentation
     ipaddress.ip_network("ff00::/8"),           # Multicast
     ipaddress.ip_network("::ffff:0:0/96"),      # IPv4-mapped IPv6
+
+    # IPv6 Edge cases: 6to4, NAT64, Teredo
+    ipaddress.ip_network("2002::/16"),          # 6to4 Relay (RFC 3056 / RFC 7526)
+    ipaddress.ip_network("64:ff9b::/96"),       # IPv4/IPv6 translation / NAT64 (RFC 6052)
+    ipaddress.ip_network("64:ff9b:1::/48"),     # Local-Use IPv4/IPv6 translation (RFC 8215)
+    ipaddress.ip_network("2001::/32"),          # Teredo tunneling (RFC 4380)
 ]
 
 
@@ -42,6 +49,27 @@ def is_ip_forbidden(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bo
     # Special case: check IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1)
     if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
         ip_obj = ip_obj.ipv4_mapped
+
+    # Check 6to4 embedded IPv4 (2002::/16)
+    if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj in ipaddress.ip_network("2002::/16"):
+        v4_int = (int(ip_obj) >> 80) & 0xFFFFFFFF
+        try:
+            v4_obj = ipaddress.IPv4Address(v4_int)
+            if is_ip_forbidden(v4_obj):
+                return True
+        except ValueError:
+            pass
+        return True  # 6to4 is deprecated and untrusted for backend downloads
+
+    # Check NAT64 embedded IPv4 (64:ff9b::/96)
+    if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj in ipaddress.ip_network("64:ff9b::/96"):
+        v4_int = int(ip_obj) & 0xFFFFFFFF
+        try:
+            v4_obj = ipaddress.IPv4Address(v4_int)
+            if is_ip_forbidden(v4_obj):
+                return True
+        except ValueError:
+            pass
 
     for network in FORBIDDEN_NETWORKS:
         if ip_obj in network:
@@ -164,4 +192,56 @@ def validate_url_security(raw_url: str) -> Tuple[str, str]:
             )
 
     return raw_url, hostname_lower
+
+
+@contextmanager
+def safe_network_guard() -> Generator[None, None, None]:
+    """
+    Context manager that intercepts all socket DNS lookups and connections
+    to guarantee zero DNS-rebinding TOCTOU and zero unchecked HTTP redirect SSRF vulnerabilities.
+    """
+    orig_getaddrinfo = socket.getaddrinfo
+    orig_connect = socket.socket.connect
+
+    def guarded_getaddrinfo(host, port, *args, **kwargs):
+        # Resolve using standard resolver
+        res = orig_getaddrinfo(host, port, *args, **kwargs)
+        if isinstance(host, str) and host:
+            # Check every resolved IP address
+            for item in res:
+                sockaddr = item[4]
+                ip_str = sockaddr[0]
+                try:
+                    ip_obj = ipaddress.ip_address(ip_str)
+                    if is_ip_forbidden(ip_obj):
+                        raise SSRFValidationError(
+                            message=f"SSRF TOCTOU Guard: Access to resolved IP '{ip_str}' is denied by security policy.",
+                            details={"hostname": host, "resolved_ip": ip_str},
+                        )
+                except ValueError:
+                    pass
+        return res
+
+    def guarded_connect(sock_self, address):
+        if isinstance(address, tuple) and len(address) >= 2:
+            ip_str = address[0]
+            try:
+                ip_obj = ipaddress.ip_address(ip_str)
+                if is_ip_forbidden(ip_obj):
+                    raise SSRFValidationError(
+                        message=f"SSRF Connection Guard: Connection to target IP '{ip_str}' is denied by security policy.",
+                        details={"target_ip": ip_str},
+                    )
+            except ValueError:
+                pass
+        return orig_connect(sock_self, address)
+
+    socket.getaddrinfo = guarded_getaddrinfo
+    socket.socket.connect = guarded_connect
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = orig_getaddrinfo
+        socket.socket.connect = orig_connect
+
 

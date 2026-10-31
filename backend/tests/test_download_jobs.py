@@ -57,9 +57,9 @@ def sample_media_info():
 async def test_create_download_job_success(mock_dns_resolution, sample_media_info):
     """Verify POST /api/v1/downloads enqueues job and returns 202 Accepted."""
     with patch("app.api.v1.endpoints.downloads.extract_media_info", return_value=sample_media_info), \
-         patch("app.api.v1.endpoints.downloads.download_media_task.delay") as mock_delay:
+         patch("app.api.v1.endpoints.downloads.download_media_task.apply_async") as mock_apply:
 
-        mock_delay.return_value = MagicMock(id="celery-task-id-123")
+        mock_apply.return_value = MagicMock(id="celery-task-id-123")
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -78,13 +78,17 @@ async def test_create_download_job_success(mock_dns_resolution, sample_media_inf
             assert "job_id" in data
             assert data["status"] == "QUEUED"
             assert data["progress"] == 0.0
+            assert "job_access_token" in data
+            assert data["job_access_token"].startswith("jat_")
 
-            # Verify Celery delay was called with correct arguments
-            mock_delay.assert_called_once()
-            call_kwargs = mock_delay.call_args[1]
-            assert call_kwargs["url"] == "https://www.youtube.com/watch?v=sample123"
-            assert call_kwargs["format_id"] == "137+140"
-            assert call_kwargs["is_audio_only"] is False
+            # Verify Celery apply_async was called with matching task_id and kwargs
+            mock_apply.assert_called_once()
+            call_kwargs = mock_apply.call_args[1]
+            assert call_kwargs["task_id"] == data["job_id"]
+            task_kw = call_kwargs["kwargs"]
+            assert task_kw["url"] == "https://www.youtube.com/watch?v=sample123"
+            assert task_kw["format_id"] == "137+140"
+            assert task_kw["is_audio_only"] is False
 
 
 @pytest.mark.asyncio

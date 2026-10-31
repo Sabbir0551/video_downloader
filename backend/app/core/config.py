@@ -1,5 +1,6 @@
 import os
 from typing import List, Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +36,13 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 900  # 15 minutes (successful extraction)
     CACHE_ERROR_TTL_SECONDS: int = 30  # Max 30 seconds for failed extractions
 
+    # Reverse Proxy & Client IP
+    TRUSTED_PROXY_COUNT: int = 1
+    TRUSTED_PROXIES: List[str] = ["127.0.0.1", "::1"]
+
+    # Admin Management
+    ADMIN_API_KEY: str = "anystream-admin-default-key-change-in-prod"
+
     # Worker & Storage Quotas
     STORAGE_BACKEND: str = "local"  # "local" or "r2"
     R2_ACCOUNT_ID: Optional[str] = None
@@ -43,6 +51,7 @@ class Settings(BaseSettings):
     R2_BUCKET: str = "anystream-files"
     STORAGE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../storage/tmp"))
     MAX_FILE_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
+    MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB
     MAX_VIDEO_DURATION_SECONDS: int = 10800  # 3 hours
     JOB_EXPIRY_MINUTES: int = 30  # Automatic file eviction window (30 minutes)
     FILE_CLEANUP_INTERVAL_SECONDS: int = 300  # 5 minutes
@@ -72,6 +81,27 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        """Refuses to start in production if insecure default secrets are used."""
+        if self.ENVIRONMENT == "production":
+            insecure_secret_markers = [
+                "insecure", "change-in-production", "secret-key", "default", "123456"
+            ]
+            if len(self.SECRET_KEY) < 32 or any(m in self.SECRET_KEY.lower() for m in insecure_secret_markers):
+                raise ValueError(
+                    "FATAL SECURITY: In production mode, SECRET_KEY must be a cryptographically strong secret with >= 32 characters."
+                )
+            if len(self.IP_HASH_SALT) < 16 or "dev-salt" in self.IP_HASH_SALT.lower():
+                raise ValueError(
+                    "FATAL SECURITY: In production mode, IP_HASH_SALT must be configured with >= 16 characters and not use dev default."
+                )
+            if self.ADMIN_API_KEY and "default" in self.ADMIN_API_KEY.lower():
+                raise ValueError(
+                    "FATAL SECURITY: In production mode, ADMIN_API_KEY must not use default credentials."
+                )
+        return self
 
 
 settings = Settings()

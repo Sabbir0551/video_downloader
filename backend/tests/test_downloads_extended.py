@@ -168,6 +168,8 @@ async def test_cancel_download_job():
     with open(part_file, "wb") as f:
         f.write(b"partial")
 
+    from app.core.security import generate_job_access_token
+
     with get_sync_db() as db:
         job = DownloadJob(
             id=job_id,
@@ -182,10 +184,17 @@ async def test_cancel_download_job():
         db.add(job)
         db.commit()
 
+    valid_token = generate_job_access_token(str(job_id))
+
     with patch("app.api.v1.endpoints.downloads.celery_app.control.revoke") as mock_revoke:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.delete(f"/api/v1/downloads/{job_id}")
+            # 1. Reject cancel without token and with different IP
+            resp_unauthorized = await client.delete(f"/api/v1/downloads/{job_id}")
+            assert resp_unauthorized.status_code == 403
+
+            # 2. Succeed cancel with valid job_access_token
+            resp = await client.delete(f"/api/v1/downloads/{job_id}?token={valid_token}")
             assert resp.status_code == 200
             data = resp.json()
             assert data["status"] == "CANCELLED"

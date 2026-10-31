@@ -244,3 +244,63 @@ async def test_info_endpoint_livestream_rejection(mock_public_dns, sample_ytdlp_
             data = resp.json()
             assert "live" in data["message"].lower()
 
+
+@pytest.mark.asyncio
+async def test_info_endpoint_takedown_blocked_and_admin_review(mock_public_dns):
+    """Verify legal takedown blocks /info extraction and admin API can review it."""
+    import hashlib
+    import uuid
+    from app.db.session import get_sync_db
+    from app.models.takedown import TakedownRecord, TakedownStatus
+    from app.core.config import settings
+
+    target_url = "https://www.youtube.com/watch?v=copyright_violation_123"
+    url_hash = hashlib.sha256(target_url.encode("utf-8")).hexdigest()
+    case_id = uuid.uuid4()
+
+    # 1. Insert takedown record
+    with get_sync_db() as db:
+        rec = TakedownRecord(
+            id=case_id,
+            url_hash=url_hash,
+            target_url=target_url,
+            channel_id="youtube:copyright_violation_123",
+            copyrighted_work_url="https://original.com",
+            requester_name="Copyright Owner",
+            requester_email="owner@copyright.com",
+            status=TakedownStatus.BLOCKED_PENDING_REVIEW,
+        )
+        db.add(rec)
+        db.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 2. Check /info is blocked with 451
+        resp = await client.post("/api/v1/info", json={"url": target_url})
+        assert resp.status_code == 451
+        assert resp.json()["error_code"] == "LEGAL_TAKEDOWN_BLOCK"
+
+        # Check URL variant (youtu.be) is also blocked
+        variant_url = "https://youtu.be/copyright_violation_123?utm_source=twitter"
+        resp_var = await client.post("/api/v1/info", json={"url": variant_url})
+        assert resp_var.status_code == 451
+
+        # 3. Test Admin API list takedowns
+        admin_resp = await client.get(
+            "/api/v1/admin/takedowns",
+            headers={"X-Admin-Key": settings.ADMIN_API_KEY},
+        )
+        assert admin_resp.status_code == 200
+        cases = admin_resp.json()
+        assert any(c["id"] == str(case_id) for c in cases)
+
+        # 4. Admin rejects takedown
+        review_resp = await client.post(
+            f"/api/v1/admin/takedowns/{case_id}/review",
+            headers={"X-Admin-Key": settings.ADMIN_API_KEY},
+            json={"action": "reject", "notes": "Fair use authorized"},
+        )
+        assert review_resp.status_code == 200
+        assert review_resp.json()["status"] == "REJECTED"
+
+

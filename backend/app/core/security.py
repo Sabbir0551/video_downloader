@@ -4,8 +4,10 @@ import json
 import re
 import time
 import unicodedata
+import urllib.parse
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from typing import Any, Dict
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import settings
 from app.core.errors import DownloadTokenInvalidError
@@ -22,14 +24,102 @@ def hash_ip(ip_address: str, salt: str = "") -> str:
     """
     Creates a non-reversible cryptographic hash of a client IP address.
     Protects user privacy while allowing rate limiting and abuse mitigation.
+    Uses daily rotating salt for forward privacy when no explicit salt is supplied.
     """
-    active_salt = salt or settings.IP_HASH_SALT
+    if salt:
+        active_salt = salt
+    else:
+        # Rotating daily salt
+        daily_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        active_salt = f"{settings.IP_HASH_SALT}:{daily_stamp}"
+
     mac = hmac.new(
         key=active_salt.encode("utf-8"),
         msg=ip_address.strip().encode("utf-8"),
         digestmod=hashlib.sha256,
     )
     return mac.hexdigest()[:32]
+
+
+def generate_job_access_token(job_id: str) -> str:
+    """Generates a secure HMAC-SHA256 ownership token bound to a specific job UUID."""
+    sig = hmac.new(
+        key=settings.SECRET_KEY.encode("utf-8"),
+        msg=f"job:{job_id}".encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).hexdigest()[:32]
+    return f"jat_{sig}"
+
+
+def verify_job_access_token(token: str, job_id: str) -> bool:
+    """Verifies that a job access token matches the expected signature for this job."""
+    if not token:
+        return False
+    expected = generate_job_access_token(job_id)
+    return hmac.compare_digest(token.strip(), expected)
+
+
+def normalize_video_url(url: str) -> Tuple[str, str]:
+    """
+    Normalizes a video URL to prevent takedown or cache bypasses via trivial parameter variants.
+    Returns:
+        (canonical_url, canonical_id)
+    """
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        netloc = parsed.netloc.lower()
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+
+        # YouTube variants
+        if "youtube.com" in netloc or "youtu.be" in netloc:
+            video_id = ""
+            if "youtu.be" in netloc:
+                video_id = path.lstrip("/").split("/")[0]
+            elif "v" in query and query["v"]:
+                video_id = query["v"][0]
+            elif "/embed/" in path:
+                video_id = path.split("/embed/")[1].split("/")[0]
+            elif "/shorts/" in path:
+                video_id = path.split("/shorts/")[1].split("/")[0]
+            if video_id:
+                canonical = f"https://www.youtube.com/watch?v={video_id}"
+                return canonical, f"youtube:{video_id}"
+
+        # Generic: strip common tracking params
+        tracking_params = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "ref", "si", "feature"}
+        clean_query = {k: v for k, v in query.items() if k.lower() not in tracking_params}
+        new_query_str = urllib.parse.urlencode(clean_query, doseq=True)
+        canonical = urllib.parse.urlunparse((parsed.scheme.lower(), netloc, path.rstrip("/"), "", new_query_str, ""))
+        return canonical, ""
+    except Exception:
+        return url.strip(), ""
+
+
+async def verify_turnstile_captcha(token: Optional[str], remote_ip: str) -> bool:
+    """Verifies Cloudflare Turnstile token via Cloudflare siteverify endpoint."""
+    if not settings.CLOUDFLARE_TURNSTILE_SECRET_KEY:
+        return True  # Verification not enabled
+    if not token:
+        return False
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                settings.CLOUDFLARE_TURNSTILE_VERIFY_URL,
+                data={
+                    "secret": settings.CLOUDFLARE_TURNSTILE_SECRET_KEY,
+                    "response": token,
+                    "remoteip": remote_ip,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return bool(data.get("success"))
+    except Exception:
+        if settings.ENVIRONMENT == "production":
+            return False
+    return False
 
 
 def sanitize_display_title(title: str, max_length: int = 250) -> str:

@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import shutil
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -12,6 +13,7 @@ from yt_dlp.utils import DownloadError, ExtractorError
 
 from app.core.config import settings
 from app.core.security import generate_download_token, sanitize_filename
+from app.core.ssrf import safe_network_guard
 from app.db.session import get_sync_db
 from app.models.job import DownloadJob, JobStatus
 from app.services.extractor import SilentLogger, map_ytdlp_error
@@ -45,7 +47,12 @@ def update_progress_in_redis(job_id: str, payload: Dict[str, Any]) -> None:
         logger.debug("Could not publish progress to Redis: %s", str(err))
 
 
-@celery_app.task(bind=True, name="app.worker.tasks.download_media_task")
+@celery_app.task(
+    bind=True,
+    name="app.worker.tasks.download_media_task",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def download_media_task(
     self,
     job_id: str,
@@ -57,34 +64,76 @@ def download_media_task(
     """
     Executes asynchronous media download and FFmpeg merging in sandboxed worker.
     - Files are saved strictly under random UUID paths in temporary storage.
-    - User input is never used as a filesystem path.
-    - Progress is reported to Redis in real time.
+    - Idempotent: checks state before processing and before final completion.
+    - Aborts immediately if job was cancelled.
+    - Monitored for maximum file size and disk backpressure.
     """
     logger.info("Starting download task for Job [%s] - URL: %s - Format: %s", job_id, url, format_id)
 
     # 1. Ensure storage directory exists
     os.makedirs(settings.STORAGE_DIR, exist_ok=True)
 
-    # 2. Update status to PROCESSING in database
+    # 2. Check disk backpressure quota
+    try:
+        free_bytes = shutil.disk_usage(settings.STORAGE_DIR).free
+        if free_bytes < settings.MIN_FREE_DISK_BYTES:
+            logger.error("Disk quota exceeded: only %d bytes free (min %d).", free_bytes, settings.MIN_FREE_DISK_BYTES)
+            with get_sync_db() as db:
+                job = db.get(DownloadJob, uuid.UUID(job_id))
+                if job:
+                    job.status = JobStatus.FAILED
+                    job.error_code = "DISK_QUOTA_EXCEEDED"
+                    job.error_message = "Server disk space is temporarily insufficient. Please try again shortly."
+                    db.commit()
+            return {"status": "FAILED", "error": "Insufficient server disk space"}
+    except Exception as e:
+        logger.warning("Could not check disk usage: %s", str(e))
+
+    # 3. Read and verify job state before starting
     with get_sync_db() as db:
         job = db.get(DownloadJob, uuid.UUID(job_id))
         if not job:
             logger.error("Job [%s] not found in database.", job_id)
             return {"status": "FAILED", "error": "Job not found"}
+
+        # If cancelled while queued, abort immediately
+        if job.status == JobStatus.CANCELLED:
+            logger.info("Job [%s] was cancelled before execution started. Aborting.", job_id)
+            return {"status": "CANCELLED", "job_id": job_id}
+
+        # Idempotency check: if already completed, return existing result
+        if job.status == JobStatus.COMPLETED:
+            logger.info("Job [%s] already marked COMPLETED. Returning idempotent cached state.", job_id)
+            return {
+                "job_id": job_id,
+                "status": "COMPLETED",
+                "progress": 100.0,
+                "file_size": job.file_size,
+                "download_url": job.download_url,
+            }
+
         job.status = JobStatus.PROCESSING
         job.progress = 0.0
         db.commit()
 
-    # 3. Build output template decoupled from video title
+    # 4. Build output template decoupled from video title
     # Format: /storage/tmp/{job_id}.%(ext)s
     output_template = os.path.join(settings.STORAGE_DIR, f"{job_id}.%(ext)s")
 
-    # 4. Progress hook closure
+    # 5. Progress hook closure
     last_update_time = 0.0
 
     def progress_hook(d: Dict[str, Any]) -> None:
         nonlocal last_update_time
         now = time.time()
+
+        # Enforce hard byte limit while downloading
+        downloaded = d.get("downloaded_bytes", 0)
+        if downloaded > settings.MAX_FILE_SIZE_BYTES:
+            raise DownloadError(
+                f"File size limit exceeded: downloaded {downloaded} bytes > maximum {settings.MAX_FILE_SIZE_BYTES} bytes allowed."
+            )
+
         # Rate limit progress events to at most once every 0.5s to conserve I/O
         if now - last_update_time < 0.5 and d.get("status") == "downloading":
             return
@@ -158,8 +207,9 @@ def download_media_task(
 
     # 6. Execute extraction and download
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        with safe_network_guard():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
 
         # Locate finalized file on disk
         matching_files = glob.glob(os.path.join(settings.STORAGE_DIR, f"{job_id}.*"))
@@ -191,6 +241,11 @@ def download_media_task(
         # Generate signed expiring download token
         with get_sync_db() as db:
             job = db.get(DownloadJob, uuid.UUID(job_id))
+            if not job or job.status == JobStatus.CANCELLED:
+                logger.info("Job [%s] was cancelled during processing. Purging artifacts.", job_id)
+                storage.delete(stored_file_path)
+                return {"status": "CANCELLED", "job_id": job_id}
+
             safe_display_name = sanitize_filename(job.title or "media_download", file_ext)
             token = generate_download_token(
                 job_id=job_id,
@@ -231,11 +286,14 @@ def download_media_task(
 
         with get_sync_db() as db:
             job = db.get(DownloadJob, uuid.UUID(job_id))
-            if job:
+            if job and job.status != JobStatus.CANCELLED:
                 job.status = JobStatus.FAILED
                 job.error_code = app_err.error_code
                 job.error_message = app_err.message
                 db.commit()
+
+        if job and job.status == JobStatus.CANCELLED:
+            return {"status": "CANCELLED", "job_id": job_id}
 
         failure_data = {
             "job_id": job_id,

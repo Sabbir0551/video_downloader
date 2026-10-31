@@ -67,6 +67,7 @@ class JobStatusResponse(BaseModel):
     eta: Optional[int] = Field(default=None, description="Seconds remaining")
     file_size: Optional[int] = Field(default=None, description="Finalized size in bytes")
     download_url: Optional[str] = Field(default=None, description="Signed download URL when completed")
+    job_access_token: Optional[str] = Field(default=None, description="Cryptographic ownership token for status/cancel/file operations")
     created_at: datetime = Field(..., description="Job submission timestamp")
     expires_at: Optional[datetime] = Field(default=None, description="File expiration timestamp")
     error_code: Optional[str] = Field(default=None, description="Machine-readable error identifier on failure")

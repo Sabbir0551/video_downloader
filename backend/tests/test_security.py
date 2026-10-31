@@ -97,3 +97,74 @@ def test_download_token_expired():
         verify_download_token(token)
     assert "expired" in exc_info.value.message
 
+
+def test_ip_spoofing_rejected_from_untrusted_peer():
+    """Verify that an untrusted direct peer cannot spoof client IP via X-Forwarded-For."""
+    from unittest.mock import MagicMock
+    from app.core.rate_limit import get_raw_client_ip
+
+    # Peer is an untrusted public IP
+    req = MagicMock()
+    req.client.host = "198.51.100.55"
+    req.headers.get.return_value = "203.0.113.1"  # Spoofed attempt
+
+    # Since peer 198.51.100.55 is not in TRUSTED_PROXIES, X-Forwarded-For must be ignored
+    resolved_ip = get_raw_client_ip(req)
+    assert resolved_ip == "198.51.100.55"
+
+
+def test_ip_forwarded_for_from_trusted_proxy():
+    """Verify that trusted proxy hops are traversed to the right-most untrusted client IP."""
+    from unittest.mock import MagicMock
+    from app.core.rate_limit import get_raw_client_ip
+
+    req = MagicMock()
+    req.client.host = "127.0.0.1"  # Trusted proxy
+    req.headers.get.return_value = "203.0.113.88, 127.0.0.1"
+
+    resolved_ip = get_raw_client_ip(req)
+    assert resolved_ip == "203.0.113.88"
+
+
+def test_job_access_token_verification():
+    """Verify cryptographic job access token generation and tamper protection."""
+    from app.core.security import generate_job_access_token, verify_job_access_token
+
+    job_id = "550e8400-e29b-41d4-a716-446655440000"
+    token = generate_job_access_token(job_id)
+
+    assert token.startswith("jat_")
+    assert verify_job_access_token(token, job_id) is True
+    # Fails for different job ID
+    assert verify_job_access_token(token, "660e8400-e29b-41d4-a716-446655440000") is False
+    # Fails for tampered token
+    assert verify_job_access_token(token + "tamper", job_id) is False
+
+
+def test_url_normalization_canonicalization():
+    """Verify YouTube and tracking URLs are normalized to prevent takedown bypass."""
+    from app.core.security import normalize_video_url
+
+    url1 = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&feature=share&si=123"
+    canon1, id1 = normalize_video_url(url1)
+    assert canon1 == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert id1 == "youtube:dQw4w9WgXcQ"
+
+    url2 = "https://youtu.be/dQw4w9WgXcQ?utm_source=twitter"
+    canon2, id2 = normalize_video_url(url2)
+    assert canon2 == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert id2 == "youtube:dQw4w9WgXcQ"
+
+
+def test_production_secret_validation():
+    """Verify Settings refuses to initialize in production with default/short secrets."""
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match="FATAL SECURITY"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="insecure-dev-secret-key",
+            IP_HASH_SALT="dev-salt-short",
+        )
+
+

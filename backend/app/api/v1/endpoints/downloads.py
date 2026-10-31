@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ from typing import Annotated, Optional
 import redis
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -27,8 +28,17 @@ from app.core.errors import (
 from app.core.rate_limit import (
     check_rate_limit,
     get_client_ip_hash,
+    get_raw_client_ip,
 )
-from app.core.security import sanitize_filename, verify_download_token
+from app.core.security import (
+    generate_download_token,
+    generate_job_access_token,
+    normalize_video_url,
+    sanitize_filename,
+    verify_download_token,
+    verify_job_access_token,
+    verify_turnstile_captcha,
+)
 from app.core.ssrf import validate_url_security
 from app.db.session import get_db
 from app.models.job import DownloadJob, JobStatus
@@ -159,20 +169,52 @@ async def create_download_job(
     ip_hash = get_client_ip_hash(request)
     check_rate_limit(ip_hash, "downloads", settings.RATE_LIMIT_JOB_PER_MINUTE)
 
-    # 2. SSRF Pre-Resolution Guard
+    # 2. CAPTCHA verification if required
+    raw_ip = get_raw_client_ip(request)
+    if settings.CLOUDFLARE_TURNSTILE_SECRET_KEY or payload.captcha_token:
+        captcha_valid = await verify_turnstile_captcha(payload.captcha_token, raw_ip)
+        if not captcha_valid:
+            raise AppError(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_code="CAPTCHA_VERIFICATION_FAILED",
+                message="Cloudflare Turnstile CAPTCHA verification failed. Please try again.",
+            )
+
+    # 3. Disk quota backpressure check
+    try:
+        free_bytes = shutil.disk_usage(settings.STORAGE_DIR).free
+        if free_bytes < settings.MIN_FREE_DISK_BYTES:
+            raise AppError(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                error_code="STORAGE_CAPACITY_FULL",
+                message="Server storage capacity is currently constrained. Please try again shortly.",
+            )
+    except AppError:
+        raise
+    except Exception:
+        pass
+
+    # 4. SSRF Pre-Resolution Guard
     clean_url, _ = validate_url_security(payload.url)
 
-    # 3. Check for active legal takedown / blacklist blocks
-    url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
+    # 5. Check for active legal takedown / blacklist blocks (canonicalized)
+    canonical_url, canonical_id = normalize_video_url(clean_url)
+    raw_url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
+    canon_url_hash = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
+
+    conds = [TakedownRecord.url_hash.in_([raw_url_hash, canon_url_hash])]
+    if canonical_id:
+        conds.append(TakedownRecord.channel_id == canonical_id)
+
     takedown_stmt = select(TakedownRecord).where(
-        TakedownRecord.url_hash == url_hash,
+        or_(*conds),
         TakedownRecord.status != TakedownStatus.REJECTED,
     )
     takedown_res = await db.execute(takedown_stmt)
     if takedown_res.scalars().first():
         raise ContentBlockedLegalError("This content has been blocked due to a copyright or legal notice.")
 
-    # 4. Check Global Concurrency Cap (system-wide active downloads)
+    # 6. Check Global Concurrency Cap (system-wide active downloads)
     global_active_stmt = select(func.count(DownloadJob.id)).where(
         DownloadJob.status.in_([JobStatus.QUEUED, JobStatus.PROCESSING])
     )
@@ -180,7 +222,7 @@ async def create_download_job(
     if global_active >= settings.GLOBAL_CONCURRENCY_CAP:
         raise GlobalConcurrencyExceededError()
 
-    # 5. Check Per-IP Concurrency Cap (max 2 active jobs per IP hash)
+    # 7. Check Per-IP Concurrency Cap (max 2 active jobs per IP hash)
     active_jobs_stmt = select(func.count(DownloadJob.id)).where(
         DownloadJob.ip_hash == ip_hash,
         DownloadJob.status.in_([JobStatus.QUEUED, JobStatus.PROCESSING]),
@@ -192,21 +234,21 @@ async def create_download_job(
             details={"max_concurrent_jobs": settings.MAX_CONCURRENT_JOBS_PER_IP},
         )
 
-    # 6. Quick metadata extraction to verify duration limits & title
+    # 8. Quick metadata extraction to verify duration limits & title
     media_info = await asyncio.to_thread(extract_media_info, clean_url)
     if media_info.duration > settings.MAX_VIDEO_DURATION_SECONDS:
         raise MediaTooLargeError(
             f"Video duration ({media_info.duration // 60}m) exceeds platform maximum of {settings.MAX_VIDEO_DURATION_SECONDS // 60}m."
         )
 
-    # 7. Create database record
+    # 9. Create database record
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=settings.JOB_EXPIRY_MINUTES)
     job_id = uuid.uuid4()
 
     new_job = DownloadJob(
         id=job_id,
-        url_hash=url_hash,
+        url_hash=raw_url_hash,
         original_url=clean_url,
         title=media_info.title,
         format_id=payload.format_id,
@@ -222,14 +264,17 @@ async def create_download_job(
     await db.commit()
     await db.refresh(new_job)
 
-    # 8. Dispatch background worker task via Celery
+    # 10. Dispatch background worker task via Celery with explicit task_id matching job_id
     try:
-        download_media_task.delay(
-            job_id=str(new_job.id),
-            url=clean_url,
-            format_id=payload.format_id,
-            is_audio_only=payload.audio_only,
-            title=media_info.title,
+        download_media_task.apply_async(
+            kwargs={
+                "job_id": str(new_job.id),
+                "url": clean_url,
+                "format_id": payload.format_id,
+                "is_audio_only": payload.audio_only,
+                "title": media_info.title,
+            },
+            task_id=str(new_job.id),
         )
     except Exception:
         new_job.status = JobStatus.FAILED
@@ -238,6 +283,7 @@ async def create_download_job(
         await db.commit()
         await db.refresh(new_job)
 
+    job_access_token = generate_job_access_token(str(new_job.id))
     return JobStatusResponse(
         job_id=new_job.id,
         status=new_job.status,
@@ -246,6 +292,7 @@ async def create_download_job(
         eta=new_job.eta,
         file_size=new_job.file_size,
         download_url=new_job.download_url,
+        job_access_token=job_access_token,
         created_at=new_job.created_at,
         expires_at=new_job.expires_at,
         error_code=new_job.error_code,
@@ -374,6 +421,9 @@ async def download_file(
 )
 async def cancel_download_job(
     job_id: uuid.UUID,
+    request: Request,
+    token: Optional[str] = Query(None),
+    x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     """Cancels a queued or active job and evicts any partial files."""
@@ -385,6 +435,19 @@ async def cancel_download_job(
 
     if not job:
         raise JobNotFoundError("Download job not found.")
+
+    # Verify ownership
+    caller_ip_hash = get_client_ip_hash(request)
+    auth_token = token or x_job_token
+    token_valid = verify_job_access_token(auth_token, str(job.id)) if auth_token else False
+    ip_match = (job.ip_hash == caller_ip_hash)
+
+    if not (token_valid or ip_match):
+        raise AppError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            error_code="ACCESS_DENIED",
+            message="Unauthorized to cancel this job: missing or invalid job access token.",
+        )
 
     # Revoke Celery task if queued/processing
     if job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
@@ -414,6 +477,16 @@ async def cancel_download_job(
     await db.commit()
     await db.refresh(job)
 
+    # Publish cancellation event to Redis
+    try:
+        if redis_client:
+            redis_client.publish(
+                f"channel:job:{job.id}",
+                json.dumps({"job_id": str(job.id), "status": "CANCELLED", "progress": 0.0}),
+            )
+    except Exception:
+        pass
+
     return JobStatusResponse(
         job_id=job.id,
         status=job.status,
@@ -422,6 +495,7 @@ async def cancel_download_job(
         eta=job.eta,
         file_size=job.file_size,
         download_url=None,
+        job_access_token=generate_job_access_token(str(job.id)) if (token_valid or ip_match) else None,
         created_at=job.created_at,
         expires_at=job.expires_at,
         error_code=job.error_code,
@@ -455,13 +529,15 @@ async def cancel_download_job(
 async def get_download_status(
     job_id: str,
     request: Request,
+    token: Optional[str] = Query(None),
+    x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     """Retrieves real-time job state and metrics. Accepts UUID or media URL."""
     clean_id_str = urllib.parse.unquote(str(job_id)).strip()
     job = None
 
-    # 1. If user entered a video URL instead of a UUID, look up or auto-enqueue
+    # 1. If user entered a video URL, look up existing job only (no auto-enqueue on GET)
     if clean_id_str.startswith(("http://", "https://")):
         clean_url, _ = validate_url_security(clean_id_str)
         url_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()
@@ -473,9 +549,10 @@ async def get_download_status(
         res = await db.execute(stmt)
         job = res.scalars().first()
 
-        # If no job exists yet for this URL, auto-enqueue it!
         if not job:
-            return await create_download_job(request, CreateJobRequest(url=clean_url), db)
+            raise JobNotFoundError(
+                "No download job found for this URL. Please submit a download request via POST /api/v1/downloads."
+            )
     else:
         try:
             target_uuid = uuid.UUID(clean_id_str)
@@ -488,6 +565,11 @@ async def get_download_status(
 
     if not job:
         raise JobNotFoundError("Download job not found or has expired. Please submit the URL to start a new download.")
+
+    caller_ip_hash = get_client_ip_hash(request)
+    auth_token = token or x_job_token
+    token_valid = verify_job_access_token(auth_token, str(job.id)) if auth_token else False
+    ip_match = (job.ip_hash == caller_ip_hash)
 
     # Live progress overlay from Redis if job is processing
     progress = job.progress
@@ -520,6 +602,7 @@ async def get_download_status(
         eta=eta,
         file_size=job.file_size,
         download_url=job.download_url,
+        job_access_token=generate_job_access_token(str(job.id)) if (token_valid or ip_match) else None,
         created_at=job.created_at,
         expires_at=job.expires_at,
         error_code=job.error_code,

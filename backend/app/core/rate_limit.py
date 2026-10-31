@@ -1,3 +1,4 @@
+import ipaddress
 import time
 import uuid
 from typing import Dict, List, Optional, Tuple
@@ -77,13 +78,69 @@ def check_rate_limit(
     _memory_windows[key].append(now)
 
 
+def get_raw_client_ip(request: Request) -> str:
+    """
+    Extracts validated client IP from request, taking the right-most untrusted hop
+    when forwarded by trusted proxies. Never trusts untrusted clients.
+    """
+    peer_ip = "127.0.0.1"
+    if request.client and request.client.host:
+        peer_ip = request.client.host
+
+    # Check if peer is in trusted proxies
+    is_peer_trusted = False
+    try:
+        peer_obj = ipaddress.ip_address(peer_ip)
+        for tp in settings.TRUSTED_PROXIES:
+            try:
+                if "/" in tp:
+                    if peer_obj in ipaddress.ip_network(tp):
+                        is_peer_trusted = True
+                        break
+                else:
+                    if peer_obj == ipaddress.ip_address(tp):
+                        is_peer_trusted = True
+                        break
+            except ValueError:
+                continue
+    except ValueError:
+        pass
+
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if not is_peer_trusted or not forwarded_for or settings.TRUSTED_PROXY_COUNT <= 0:
+        return peer_ip
+
+    # Parse hops: "client, proxy1, proxy2"
+    hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+    if not hops:
+        return peer_ip
+
+    # Walk backwards from the rightmost hop (closest to our trusted proxy)
+    # The first untrusted IP encountered is the real client IP.
+    for hop in reversed(hops):
+        try:
+            hop_obj = ipaddress.ip_address(hop)
+            hop_is_trusted = False
+            for tp in settings.TRUSTED_PROXIES:
+                try:
+                    if "/" in tp:
+                        if hop_obj in ipaddress.ip_network(tp):
+                            hop_is_trusted = True
+                            break
+                    else:
+                        if hop_obj == ipaddress.ip_address(tp):
+                            hop_is_trusted = True
+                            break
+                except ValueError:
+                    continue
+            if not hop_is_trusted:
+                return hop
+        except ValueError:
+            continue
+
+    return hops[0] if hops else peer_ip
+
+
 def get_client_ip_hash(request: Request) -> str:
     """Extracts client IP from request and returns a privacy-preserving salted HMAC hash."""
-    client_ip = "127.0.0.1"
-    if request.client and request.client.host:
-        client_ip = request.client.host
-    # Honor X-Forwarded-For if behind trusted proxy
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        client_ip = forwarded_for.split(",")[0].strip()
-    return hash_ip(client_ip)
+    return hash_ip(get_raw_client_ip(request))
