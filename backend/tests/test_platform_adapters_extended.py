@@ -155,6 +155,35 @@ def test_adapter_registry_lookup():
     assert get_platform_adapter("telegram").platform_id == "telegram"
     assert get_platform_adapter("xiaohongshu").platform_id == "xiaohongshu"
     assert get_platform_adapter("substack").platform_id == "substack"
+    assert get_platform_adapter("tumblr").platform_id == "tumblr"
     assert get_platform_adapter("github").platform_id == "embed_or_direct"
     assert get_platform_adapter("discord").platform_id == "embed_or_direct"
+
+
+def test_tumblr_adapter_and_content_first_meta():
+    from app.platforms.adapters import TumblrAdapter
+    adapter = TumblrAdapter()
+    assert adapter.platform_id == "tumblr"
+
+    # HTML with content attribute before property attribute (Tumblr style)
+    tumblr_html = """
+    <html><head>
+      <meta data-rh="" content="https://64.media.tumblr.com/sample_video.mov" property="og:video"/>
+      <meta data-rh="" content="Post by @artist · 1 video" property="og:title"/>
+      <meta data-rh="" content="https://44.media.tumblr.com/thumb.jpg" property="og:image"/>
+    </head></html>
+    """
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = tumblr_html
+    mock_resp.headers = {"content-type": "text/html"}
+    mock_resp.url = "https://www.tumblr.com/artist/12345"
+
+    with patch("httpx.Client.get", return_value=mock_resp):
+        info = adapter.extract_custom_media("https://www.tumblr.com/artist/12345")
+        assert info is not None
+        assert info["formats"][0]["url"] == "https://64.media.tumblr.com/sample_video.mov"
+        assert info["formats"][0]["ext"] == "mov"
+        assert "artist" in info["title"]
+        assert info["thumbnail"] == "https://44.media.tumblr.com/thumb.jpg"
 

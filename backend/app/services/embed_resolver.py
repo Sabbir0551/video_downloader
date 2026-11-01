@@ -34,7 +34,11 @@ def is_direct_media_url(url: str) -> bool:
     return ext in DIRECT_MEDIA_EXTENSIONS
 
 
-def build_direct_media_info(url: str, title: Optional[str] = None) -> Dict[str, Any]:
+def build_direct_media_info(
+    url: str,
+    title: Optional[str] = None,
+    thumbnail: Optional[str] = None,
+) -> Dict[str, Any]:
     """Constructs a yt-dlp compliant info_dict for direct media URLs."""
     parsed = urlparse(url)
     path = parsed.path
@@ -47,13 +51,14 @@ def build_direct_media_info(url: str, title: Optional[str] = None) -> Dict[str, 
     clean_title = title or filename.rsplit(".", 1)[0] or "Direct Media"
 
     vcodec = "none" if is_audio else ("h264" if ext in {"mp4", "mov"} else "vp9")
-    acodec = "mp3" if ext == "mp3" else ("aac" if ext in {"mp4", "m4a"} else "opus")
+    acodec = "mp3" if ext == "mp3" else ("aac" if ext in {"mp4", "mov", "m4a"} else "opus")
 
     return {
         "id": hashlib_id(url),
         "title": clean_title,
         "url": url,
         "webpage_url": url,
+        "thumbnail": thumbnail or "",
         "extractor": "generic:direct",
         "extractor_key": "DirectMedia",
         "duration": 0,
@@ -95,13 +100,18 @@ def extract_embed_or_media_from_html(html_text: str, base_url: str) -> Optional[
                     "url": full_iframe_url,
                 }
 
-    # 2. Check for OpenGraph or Twitter video meta tags
+    # 2. Check for OpenGraph or Twitter video meta tags (both property-first and content-first)
     meta_patterns = [
-        r'<meta[^>]+property=["\']og:video:secure_url["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+property=["\']og:video:url["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+name=["\']twitter:player:stream["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+name=["\']twitter:player["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+(?:property|name)=["\']og:video:secure_url["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+(?:property|name)=["\']og:video:url["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+(?:property|name)=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+(?:property|name)=["\']twitter:player:stream["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+(?:property|name)=["\']twitter:player["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:video:secure_url["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:video:url["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:video["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']twitter:player:stream["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']twitter:player["\']',
     ]
     for pattern in meta_patterns:
         match = re.search(pattern, html_text, re.IGNORECASE)
@@ -172,14 +182,26 @@ def fetch_and_resolve_page_media(url: str, headers: Optional[Dict[str, str]] = N
                 if not parsed_res:
                     return None
 
-                if parsed_res.get("type") == "direct_media":
-                    # Extract page title
-                    title_match = re.search(r"<title[^>]*>([^<]+)</title>", html_text, re.IGNORECASE)
+                # If direct media or resolved direct URL
+                if parsed_res.get("type") in ("direct_media", "resolved_url") and is_direct_media_url(parsed_res.get("url", "")):
+                    # Extract page title from og:title or <title>
+                    title_match = re.search(r'<meta[^>]+(?:property|name)=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+                    if not title_match:
+                        title_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:title["\']', html_text, re.IGNORECASE)
+                    if not title_match:
+                        title_match = re.search(r"<title[^>]*>([^<]+)</title>", html_text, re.IGNORECASE)
+
                     page_title = html.unescape(title_match.group(1)).strip() if title_match else None
-                    return build_direct_media_info(parsed_res["url"], title=page_title)
+
+                    # Extract thumbnail from og:image
+                    thumb_match = re.search(r'<meta[^>]+(?:property|name)=["\'](?:og:image:secure_url|og:image:url|og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+                    if not thumb_match:
+                        thumb_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image:secure_url|og:image:url|og:image|twitter:image)["\']', html_text, re.IGNORECASE)
+                    thumbnail = html.unescape(thumb_match.group(1)) if thumb_match else None
+
+                    return build_direct_media_info(parsed_res["url"], title=page_title, thumbnail=thumbnail)
 
                 return parsed_res
     except Exception as e:
         logger.debug("Failed to resolve embed for %s: %s", url, str(e))
         return None
-

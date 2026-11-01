@@ -397,6 +397,27 @@ class DirectEmbedAdapter(BasePlatformAdapter):
         return fetch_and_resolve_page_media(url)
 
 
+class TumblrAdapter(BasePlatformAdapter):
+    """
+    Adapter for Tumblr video posts.
+    Bypasses Tumblr 403 blocks with browser headers and extracts
+    direct video/audio streams via OpenGraph metadata.
+    """
+    platform_id = "tumblr"
+
+    def get_ydl_options(self, url: str) -> Dict[str, Any]:
+        return {
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Referer": "https://www.tumblr.com/",
+            }
+        }
+
+    def extract_custom_media(self, url: str) -> Optional[Dict[str, Any]]:
+        return fetch_and_resolve_page_media(url)
+
+
 def hashlib_id(text: str) -> str:
     import hashlib
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
@@ -412,6 +433,7 @@ ADAPTER_MAP: Dict[str, BasePlatformAdapter] = {
     "telegram": TelegramAdapter(),
     "xiaohongshu": XiaohongshuAdapter(),
     "substack": SubstackAdapter(),
+    "tumblr": TumblrAdapter(),
     "discord": DirectEmbedAdapter(),
     "github": DirectEmbedAdapter(),
     "gitlab": DirectEmbedAdapter(),
