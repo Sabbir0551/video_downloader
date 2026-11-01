@@ -54,3 +54,4 @@ def test_circuit_breaker_resilience():
     # Success resets circuit
     cb.record_success(plat)
     assert cb.is_available(plat) is True
+

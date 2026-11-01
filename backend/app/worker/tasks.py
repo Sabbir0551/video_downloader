@@ -168,7 +168,15 @@ def download_media_task(
             update_progress_in_redis(job_id, progress_data)
             last_update_time = now
 
-    # 5. Build yt-dlp configuration with format_sort
+    # 5. Build yt-dlp configuration with format_sort and platform adapter
+    from app.platforms.adapters import get_platform_adapter
+    from app.platforms.registry import get_platform_registry
+
+    reg = get_platform_registry()
+    matched_plat = reg.find_by_url(url)
+    adapter = get_platform_adapter(matched_plat.id if matched_plat else None)
+    target_url = adapter.canonicalize_url(url)
+
     needs_mp4_transcode = ":transcode_mp4" in format_id
     clean_format_id = format_id.replace(":transcode_mp4", "").replace("+mp3_320", "").replace("+mp3", "")
     is_mp3 = "+mp3" in format_id
@@ -197,6 +205,10 @@ def download_media_task(
         "js_runtimes": {"node": {}},
     }
 
+    adapter_opts = adapter.get_ydl_options(target_url)
+    if adapter_opts:
+        ydl_opts.update(adapter_opts)
+
     # Audio extraction postprocessor
     if is_audio_only:
         ydl_opts["postprocessors"] = [
@@ -215,8 +227,26 @@ def download_media_task(
     # 6. Execute extraction and download
     try:
         with safe_network_guard():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([target_url])
+            except Exception as dl_err:
+                logger.info("Direct yt-dlp download failed for %s, trying adapter custom media: %s", target_url, str(dl_err))
+                custom_res = adapter.extract_custom_media(target_url)
+                if custom_res and "formats" in custom_res:
+                    direct_stream_url = custom_res["formats"][0].get("url")
+                    if direct_stream_url:
+                        ydl_opts["format"] = "best"
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([direct_stream_url])
+                    else:
+                        raise dl_err
+                elif custom_res and custom_res.get("type") == "resolved_url":
+                    resolved_url = custom_res["url"]
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([resolved_url])
+                else:
+                    raise dl_err
 
         # Locate finalized file on disk
         matching_files = glob.glob(os.path.join(settings.STORAGE_DIR, f"{job_id}.*"))

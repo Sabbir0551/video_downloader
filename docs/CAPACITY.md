@@ -131,3 +131,4 @@ Exposed via `/metrics`:
 Located under `tests/load/`:
 - `locustfile.py`: Simulates 5,000 concurrent browsing users pasting URLs and initiating downloads.
 - `k6_stress_test.js`: Ramping arrival-rate test from 50 to 1,000 virtual users checking SSRF, rate limit enforcement, and SSE progress stream stability.
+

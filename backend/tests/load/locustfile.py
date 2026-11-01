@@ -36,3 +36,4 @@ class AnyStreamLoadUser(HttpUser):
                 response.success()
             else:
                 response.failure(f"Unexpected status: {response.status_code}")
+

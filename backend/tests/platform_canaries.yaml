@@ -40,3 +40,4 @@ canaries:
     expected_status: "supported"
     expect_video: true
     expect_audio: true
+

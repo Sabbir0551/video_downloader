@@ -112,3 +112,4 @@ def test_integrity_check_detects_corrupt_file(tmp_path):
     noise_file.write_bytes(b"NOT A REAL VIDEO FILE DATA" * 50)
     is_valid_noise, err_noise = verify_media_integrity(str(noise_file))
     assert is_valid_noise is False
+

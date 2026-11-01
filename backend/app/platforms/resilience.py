@@ -115,3 +115,4 @@ class ProxyManager:
 # Default instances
 circuit_breaker = PlatformCircuitBreaker()
 proxy_manager = ProxyManager()
+

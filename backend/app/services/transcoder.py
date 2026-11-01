@@ -162,3 +162,4 @@ def convert_to_compatible_mp4(
     except subprocess.CalledProcessError as e:
         logger.error("FFmpeg conversion failed: %s", e.stderr)
         raise RuntimeError(f"FFmpeg transcode failed: {e.stderr.strip()}") from e
+

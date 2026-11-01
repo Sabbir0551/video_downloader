@@ -18,6 +18,7 @@ from app.core.errors import (
     UnsupportedUrlError,
 )
 from app.core.ssrf import safe_network_guard
+from app.platforms.adapters import get_platform_adapter
 from app.platforms.registry import get_platform_registry
 from app.schemas.extract import FormatOption, MediaInfoResponse
 
@@ -218,6 +219,19 @@ def normalize_formats(
         if best_aac_audio else best_audio_size
     )
 
+    # If no separate audio-only stream was found, check for combined audio/video streams
+    if not best_audio:
+        for fmt in formats:
+            acodec = fmt.get("acodec", "none") or "none"
+            if acodec != "none":
+                best_audio = fmt
+                best_audio_abr = float(fmt.get("abr") or fmt.get("tbr") or 192.0)
+                best_audio_id = fmt.get("format_id")
+                best_audio_size = fmt.get("filesize") or fmt.get("filesize_approx")
+                aac_audio_id = best_audio_id
+                aac_audio_size = best_audio_size
+                break
+
     # 2. Extract video streams grouped by height
     # Map height -> list of video formats
     by_height: Dict[int, List[Dict[str, Any]]] = {}
@@ -227,9 +241,12 @@ def normalize_formats(
         vcodec = fmt.get("vcodec", "none") or "none"
         ext = fmt.get("ext", "mp4")
 
-        # Ignore audio-only or invalid heights
-        if vcodec == "none" or not height or height < 144:
+        # Ignore audio-only
+        if vcodec == "none":
             continue
+
+        if not height or height < 144:
+            height = 720
 
         # Skip storyboards and low-quality manifests
         protocol = fmt.get("protocol", "") or ""
@@ -494,29 +511,56 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
         except Exception as e:
             logger.debug("Redis cache read failed: %s", str(e))
 
-    ydl_opts = get_ydl_options()
+    # 2. Match platform and adapter
+    reg = get_platform_registry()
+    matched_plat = reg.find_by_url(url)
+    platform_id = matched_plat.id if matched_plat else None
+    platform_tier = matched_plat.tier if matched_plat else None
+    adapter = get_platform_adapter(platform_id)
 
+    target_url = adapter.canonicalize_url(canonical_url)
+    ydl_opts = get_ydl_options()
+    adapter_opts = adapter.get_ydl_options(target_url)
+    if adapter_opts:
+        ydl_opts.update(adapter_opts)
+
+    info_dict = None
     try:
         with safe_network_guard():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=False)
+                info_dict = ydl.extract_info(target_url, download=False)
     except Exception as err:
-        app_err = map_ytdlp_error(err)
-        # Cache negative error for short TTL
-        if redis_client:
-            try:
-                redis_client.setex(
-                    err_cache_key,
-                    settings.CACHE_ERROR_TTL_SECONDS,
-                    json.dumps({
-                        "status_code": app_err.status_code,
-                        "error_code": app_err.error_code,
-                        "message": app_err.message,
-                    }),
-                )
-            except Exception:
-                pass
-        raise app_err
+        logger.info("Standard yt-dlp extraction failed for %s, trying adapter custom extraction: %s", target_url, str(err))
+        custom_res = adapter.extract_custom_media(target_url)
+        if custom_res:
+            if custom_res.get("type") == "resolved_url":
+                resolved_url = custom_res["url"]
+                try:
+                    with safe_network_guard():
+                        with yt_dlp.YoutubeDL(get_ydl_options()) as ydl:
+                            info_dict = ydl.extract_info(resolved_url, download=False)
+                except Exception:
+                    pass
+            elif "formats" in custom_res:
+                info_dict = custom_res
+
+        if not info_dict:
+            app_err = map_ytdlp_error(err)
+            # Cache negative error for short TTL
+            if redis_client:
+                try:
+                    redis_client.setex(
+                        err_cache_key,
+                        settings.CACHE_ERROR_TTL_SECONDS,
+                        json.dumps({
+                            "status_code": app_err.status_code,
+                            "error_code": app_err.error_code,
+                            "message": app_err.message,
+                        }),
+                    )
+                except Exception:
+                    pass
+            raise app_err
 
     if not info_dict:
         raise UnsupportedUrlError("Could not retrieve media details from this URL.")
