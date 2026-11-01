@@ -182,3 +182,4 @@ def fetch_and_resolve_page_media(url: str, headers: Optional[Dict[str, str]] = N
     except Exception as e:
         logger.debug("Failed to resolve embed for %s: %s", url, str(e))
         return None
+

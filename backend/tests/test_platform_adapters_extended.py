@@ -157,3 +157,4 @@ def test_adapter_registry_lookup():
     assert get_platform_adapter("substack").platform_id == "substack"
     assert get_platform_adapter("github").platform_id == "embed_or_direct"
     assert get_platform_adapter("discord").platform_id == "embed_or_direct"
+
