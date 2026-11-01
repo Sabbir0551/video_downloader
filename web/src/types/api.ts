@@ -98,3 +98,40 @@ export interface ErrorResponse {
   message: string;
   details?: Record<string, unknown>;
 }
+
+
+export interface PlatformMetadata {
+  id: string;
+  name: string;
+  domains: string[];
+  category: string;
+  tier: "supported" | "best_effort" | "unsupported_no_video" | "login_or_paid" | "defunct";
+  status: string;
+  has_public_video: boolean;
+  requires_login: boolean;
+  supports_audio_only: boolean;
+  max_quality_expected: string;
+  per_platform_concurrency: number;
+  per_platform_rate_limit: string;
+  notes?: string | null;
+  extractor_keys: string[];
+}
+
+export interface PlatformsListResponse {
+  version: string;
+  last_verified: string;
+  ytdlp_version: string;
+  total: number;
+  tiers_summary: Record<string, number>;
+  platforms: PlatformMetadata[];
+}
+
+export interface PlatformDetectResponse {
+  detected: boolean;
+  platform?: PlatformMetadata | null;
+  tier: string;
+  allowed: boolean;
+  requires_login: boolean;
+  has_public_video: boolean;
+  message?: string;
+}

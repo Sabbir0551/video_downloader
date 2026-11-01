@@ -1,0 +1,1669 @@
+version: 1.0.0
+last_verified: '2026-11-01'
+ytdlp_version: 2026.10.26
+total_platforms: 100
+tiers_summary:
+  supported: 38
+  best_effort: 21
+  unsupported_no_video: 29
+  login_or_paid: 9
+  defunct: 3
+platforms:
+- id: facebook
+  name: Facebook
+  domains:
+  - facebook.com
+  - fb.watch
+  - fb.com
+  - m.facebook.com
+  - web.facebook.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 30
+  per_platform_rate_limit: 60/m
+  notes: Supports public posts, reels, and watch videos. Private groups or friends-only
+    posts require login and are not supported.
+  extractor_keys:
+  - Facebook
+  - FacebookPlugins
+  - FacebookReel
+  status: active
+- id: youtube
+  name: YouTube
+  domains:
+  - youtube.com
+  - youtu.be
+  - m.youtube.com
+  - music.youtube.com
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 4k
+  per_platform_concurrency: 50
+  per_platform_rate_limit: 120/m
+  notes: Full support for standard videos, Shorts, and audio extraction up to 4K/8K.
+    Members-only or age-gated videos requiring login are refused.
+  extractor_keys:
+  - Youtube
+  - YoutubeTab
+  - YoutubeShorts
+  - YoutubeClip
+  status: active
+- id: whatsapp
+  name: WhatsApp
+  domains:
+  - whatsapp.com
+  - wa.me
+  - chat.whatsapp.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private end-to-end encrypted messaging service. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: instagram
+  name: Instagram
+  domains:
+  - instagram.com
+  - instagr.am
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 45/m
+  notes: Supports public reels, posts, and IGTV. Private profiles and expired stories
+    require login and are not supported.
+  extractor_keys:
+  - Instagram
+  - InstagramStory
+  status: active
+- id: tiktok
+  name: TikTok
+  domains:
+  - tiktok.com
+  - vm.tiktok.com
+  - vt.tiktok.com
+  - m.tiktok.com
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 40
+  per_platform_rate_limit: 90/m
+  notes: Watermark-free original video stream extraction supported where provided
+    by upstream CDN.
+  extractor_keys:
+  - TikTok
+  - TikTokUser
+  status: active
+- id: wechat
+  name: WeChat
+  domains:
+  - wechat.com
+  - weixin.qq.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private messaging and closed ecosystem. Channels/Moments require internal
+    WeChat app authentication.
+  extractor_keys: []
+  status: active
+- id: messenger
+  name: Messenger
+  domains:
+  - messenger.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private 1-on-1 and group messaging platform. No public standalone video URLs.
+  extractor_keys: []
+  status: active
+- id: telegram
+  name: Telegram
+  domains:
+  - telegram.org
+  - t.me
+  category: messaging
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 720p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Supports public channel video embeds via t.me/channel/msg_id. Private chat
+    files require MTProto login and are refused.
+  extractor_keys:
+  - telegram:embed
+  status: active
+- id: snapchat
+  name: Snapchat
+  domains:
+  - snapchat.com
+  - story.snapchat.com
+  - snap.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public Spotlight and public Story links supported. Ephemeral private snaps
+    cannot be retrieved.
+  extractor_keys:
+  - Snapchat
+  status: active
+- id: douyin
+  name: Douyin
+  domains:
+  - douyin.com
+  - v.douyin.com
+  - iesdouyin.com
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 45/m
+  notes: Chinese domestic TikTok counterpart. Public video links supported without
+    watermark.
+  extractor_keys:
+  - Douyin
+  status: active
+- id: kuaishou
+  name: Kuaishou
+  domains:
+  - kuaishou.com
+  - v.kuaishou.com
+  - kwai.com
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 45/m
+  notes: Short video platform. Public Kwai/Kuaishou shares supported.
+  extractor_keys:
+  - Kwai
+  status: active
+- id: weibo
+  name: Sina Weibo
+  domains:
+  - weibo.com
+  - weibo.cn
+  - m.weibo.cn
+  - video.weibo.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video status posts supported via dedicated Weibo extractor.
+  extractor_keys:
+  - Weibo
+  status: active
+- id: qq
+  name: QQ
+  domains:
+  - qq.com
+  - im.qq.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Instant messaging app. (QQMusic is a distinct music service, QQ itself has
+    no public video).
+  extractor_keys: []
+  status: active
+- id: twitter
+  name: X (Twitter)
+  domains:
+  - x.com
+  - twitter.com
+  - t.co
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 30
+  per_platform_rate_limit: 60/m
+  notes: Public tweets with native video/GIF. Multi-video tweets extract the primary
+    video stream.
+  extractor_keys:
+  - Twitter
+  status: active
+- id: pinterest
+  name: Pinterest
+  domains:
+  - pinterest.com
+  - pin.it
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Supports video pins and story pins.
+  extractor_keys:
+  - PinterestCollection
+  - Pinterest
+  status: active
+- id: reddit
+  name: Reddit
+  domains:
+  - reddit.com
+  - v.redd.it
+  - redd.it
+  - old.reddit.com
+  category: community_forum
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 60/m
+  notes: Merges v.redd.it DASH video and DASH audio streams into unified output.
+  extractor_keys:
+  - Reddit
+  status: active
+- id: linkedin
+  name: LinkedIn
+  domains:
+  - linkedin.com
+  category: professional
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public video feed posts supported. Private company pages or gated feeds require
+    login.
+  extractor_keys:
+  - linkedin:events
+  - LinkedIn
+  - linkedin:learning:course
+  - linkedin:learning
+  status: active
+- id: threads
+  name: Threads
+  domains:
+  - threads.net
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video posts supported via Instagram/Threads GraphQL extractor.
+  extractor_keys:
+  - Threads
+  status: active
+- id: quora
+  name: Quora
+  domains:
+  - quora.com
+  - qph.cf2.quoracdn.net
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Text and image Q&A platform. Does not host standalone public video files.
+  extractor_keys: []
+  status: active
+- id: discord
+  name: Discord
+  domains:
+  - discord.com
+  - discord.gg
+  - cdn.discordapp.com
+  category: community_forum
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Direct media URLs (cdn.discordapp.com) supported. Channel messages require
+    bot authorization.
+  extractor_keys: []
+  status: active
+- id: tumblr
+  name: Tumblr
+  domains:
+  - tumblr.com
+  - t.umblr.com
+  category: creator_writing
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 720p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 45/m
+  notes: Public video blog posts supported.
+  extractor_keys:
+  - Tumblr
+  status: active
+- id: twitch
+  name: Twitch
+  domains:
+  - twitch.tv
+  - clips.twitch.tv
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 30
+  per_platform_rate_limit: 60/m
+  notes: Supports public Clips and recorded VODs. Ongoing live streams are not permitted
+    for static download.
+  extractor_keys:
+  - TwitchVod
+  - TwitchClips
+  status: active
+- id: vk
+  name: VK (VKontakte)
+  domains:
+  - vk.com
+  - vk.ru
+  - vkvideo.ru
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Public VK wall and VK Video clips supported.
+  extractor_keys:
+  - VK
+  status: active
+- id: line
+  name: Line
+  domains:
+  - line.me
+  - timeline.line.me
+  - voom.line.me
+  category: messaging
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Line VOOM public video posts supported via generic/embed; 1-on-1 chats are
+    private.
+  extractor_keys: []
+  status: active
+- id: viber
+  name: Viber
+  domains:
+  - viber.com
+  - vb.me
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private messaging app. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: signal
+  name: Signal
+  domains:
+  - signal.org
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: End-to-end encrypted private messaging. Zero public video hosting.
+  extractor_keys: []
+  status: active
+- id: bluesky
+  name: Bluesky
+  domains:
+  - bsky.app
+  - bsky.social
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video posts (HLS/video.bsky.app) supported.
+  extractor_keys:
+  - Bluesky
+  status: active
+- id: mastodon
+  name: Mastodon
+  domains:
+  - mastodon.social
+  - mstdn.jp
+  - mastodon.online
+  - pawoo.net
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Decentralized ActivityPub federation. Public video attachments supported.
+  extractor_keys:
+  - Mastodon
+  status: active
+- id: kakaotalk
+  name: KakaoTalk
+  domains:
+  - kakaocorp.com
+  - kakao.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Closed Korean mobile messaging network. No public video hosting.
+  extractor_keys:
+  - Kakao
+  status: active
+- id: zalo
+  name: Zalo
+  domains:
+  - zalo.me
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Vietnamese messaging service. Chats are private.
+  extractor_keys: []
+  status: active
+- id: ok_ru
+  name: Odnoklassniki (OK)
+  domains:
+  - ok.ru
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Russian social network with extensive public video hosting. Dedicated Odnoklassniki
+    extractor.
+  extractor_keys:
+  - Odnoklassniki
+  status: active
+- id: bilibili
+  name: Bilibili
+  domains:
+  - bilibili.com
+  - b23.tv
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Multi-part videos supported (defaults to part 1). VIP-only 4K requires login
+    and is refused.
+  extractor_keys:
+  - BiliBili
+  status: active
+- id: xiaohongshu
+  name: Xiaohongshu (RedNote)
+  domains:
+  - xiaohongshu.com
+  - xhslink.com
+  category: social
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public video notes extractable via og:video and web API.
+  extractor_keys:
+  - XiaoHongShu
+  status: active
+- id: zhihu
+  name: Zhihu
+  domains:
+  - zhihu.com
+  - zhimg.com
+  category: community_forum
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Chinese Q&A site with video answers. Zhihu extractor available for public
+    video answers.
+  extractor_keys:
+  - Zhihu
+  status: active
+- id: douban
+  name: Douban
+  domains:
+  - douban.com
+  category: community_forum
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Public trailers and clip reviews extractable via generic extractor.
+  extractor_keys: []
+  status: active
+- id: likee
+  name: Likee
+  domains:
+  - likee.video
+  - like-video.com
+  - l.likee.video
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Short video platform. Dedicated Likee extractor supported.
+  extractor_keys:
+  - likee
+  - likee:user
+  status: active
+- id: bigo_live
+  name: Bigo Live
+  domains:
+  - bigo.tv
+  - slink.bigovideo.tv
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Recorded public video clips supported via Bigo extractor. Live streams excluded.
+  extractor_keys:
+  - Bigo
+  status: active
+- id: kik
+  name: Kik
+  domains:
+  - kik.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Anonymous mobile messaging app. (Kika extractor is an unrelated German TV
+    site).
+  extractor_keys: []
+  status: active
+- id: flickr
+  name: Flickr
+  domains:
+  - flickr.com
+  - flic.kr
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video photos supported via Flickr extractor.
+  extractor_keys:
+  - Flickr
+  status: active
+- id: medium
+  name: Medium
+  domains:
+  - medium.com
+  category: creator_writing
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Articles occasionally embed third-party public videos.
+  extractor_keys: []
+  status: active
+- id: clubhouse
+  name: Clubhouse
+  domains:
+  - clubhouse.com
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: true
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Live voice rooms without public standalone video hosting.
+  extractor_keys: []
+  status: active
+- id: nextdoor
+  name: Nextdoor
+  domains:
+  - nextdoor.com
+  category: social
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Neighborhood network strictly gated by private address verification and login.
+  extractor_keys: []
+  status: active
+- id: vimeo
+  name: Vimeo
+  domains:
+  - vimeo.com
+  - player.vimeo.com
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 4k
+  per_platform_concurrency: 35
+  per_platform_rate_limit: 80/m
+  notes: Full support for public videos and on-demand content up to 4K. Password-protected
+    videos refused.
+  extractor_keys:
+  - Vimeo
+  status: active
+- id: soundcloud
+  name: SoundCloud
+  domains:
+  - soundcloud.com
+  - on.soundcloud.com
+  category: video_audio
+  tier: supported
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: none
+  per_platform_concurrency: 30
+  per_platform_rate_limit: 60/m
+  notes: Audio platform. Extracts original 128-256kbps MP3/Opus/AAC audio streams.
+  extractor_keys:
+  - Soundcloud
+  status: active
+- id: goodreads
+  name: Goodreads
+  domains:
+  - goodreads.com
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Book reviews and reading catalog. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: behance
+  name: Behance
+  domains:
+  - behance.net
+  category: photo_art
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Portfolio projects containing public MP4/WebM video embeds supported via
+    generic extractor.
+  extractor_keys: []
+  status: active
+- id: dribbble
+  name: Dribbble
+  domains:
+  - dribbble.com
+  - cdn.dribbble.com
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video shots supported via Dribbble extractor.
+  extractor_keys: []
+  status: active
+- id: deviantart
+  name: DeviantArt
+  domains:
+  - deviantart.com
+  - fav.me
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Public video art and animations supported via DeviantArt extractor.
+  extractor_keys: []
+  status: active
+- id: artstation
+  name: ArtStation
+  domains:
+  - artstation.com
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Digital art portfolios. Public project video clips supported via ArtStation
+    extractor.
+  extractor_keys: []
+  status: active
+- id: 500px
+  name: 500px
+  domains:
+  - 500px.com
+  category: photo_art
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Still photography platform only. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: github
+  name: GitHub
+  domains:
+  - github.com
+  - user-images.githubusercontent.com
+  category: professional
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public repository release assets and user-uploaded issue/PR demo videos supported
+    via direct URL.
+  extractor_keys: []
+  status: active
+- id: gitlab
+  name: GitLab
+  domains:
+  - gitlab.com
+  category: professional
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Public release assets and snippet videos supported via generic extractor.
+  extractor_keys: []
+  status: active
+- id: stackoverflow
+  name: Stack Overflow
+  domains:
+  - stackoverflow.com
+  - stackexchange.com
+  category: professional
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Developer Q&A site. No native video hosting.
+  extractor_keys: []
+  status: active
+- id: dev_to
+  name: Dev.to
+  domains:
+  - dev.to
+  category: professional
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Developer blogging platform with third-party video embeds.
+  extractor_keys: []
+  status: active
+- id: hashnode
+  name: Hashnode
+  domains:
+  - hashnode.com
+  - hashnode.dev
+  category: professional
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Developer blogging platform with embedded public videos.
+  extractor_keys: []
+  status: active
+- id: producthunt
+  name: Product Hunt
+  domains:
+  - producthunt.com
+  category: professional
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Product demo videos and gallery clips supported via generic extractor.
+  extractor_keys: []
+  status: active
+- id: kaggle
+  name: Kaggle
+  domains:
+  - kaggle.com
+  category: professional
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Data science datasets and notebooks. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: polywork
+  name: Polywork
+  domains:
+  - polywork.com
+  category: professional
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Professional networking portfolio. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: mastodon_instance
+  name: Mastodon Fediverse
+  domains:
+  - mastodon.social
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Federated ActivityPub video posts.
+  extractor_keys: []
+  status: active
+- id: mewe
+  name: MeWe
+  domains:
+  - mewe.com
+  category: social
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private social network requiring account login for all member posts.
+  extractor_keys: []
+  status: active
+- id: sharechat
+  name: ShareChat
+  domains:
+  - sharechat.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 720p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Indian regional social network with public videos supported via dedicated
+    extractor.
+  extractor_keys:
+  - ShareChat
+  status: active
+- id: moj
+  name: Moj
+  domains:
+  - mojapp.in
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Indian short video app (ShareChat subsidiary). Public video links supported.
+  extractor_keys:
+  - Moj
+  status: active
+- id: koo
+  name: Koo
+  domains:
+  - kooapp.com
+  category: social
+  tier: defunct
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 0
+  per_platform_rate_limit: 0/m
+  notes: Defunct service. Koo permanently shut down all operations in July 2024.
+  extractor_keys: []
+  status: defunct
+- id: skype
+  name: Skype
+  domains:
+  - skype.com
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: VoIP and teleconferencing service. No public video hosting.
+  extractor_keys: []
+  status: active
+- id: imo
+  name: imo
+  domains:
+  - imo.im
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private mobile video calling and chat app. No public video sharing.
+  extractor_keys: []
+  status: active
+- id: tinder
+  name: Tinder
+  domains:
+  - tinder.com
+  - gotinder.com
+  category: dating
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private dating application. Gated behind phone login. No public video URLs.
+  extractor_keys: []
+  status: active
+- id: bumble
+  name: Bumble
+  domains:
+  - bumble.com
+  category: dating
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Dating and professional networking app. Closed user profiles only.
+  extractor_keys: []
+  status: active
+- id: hinge
+  name: Hinge
+  domains:
+  - hinge.co
+  category: dating
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Private dating app. No public web profiles or video hosting.
+  extractor_keys: []
+  status: active
+- id: badoo
+  name: Badoo
+  domains:
+  - badoo.com
+  category: dating
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Dating network. Profiles require authentication.
+  extractor_keys: []
+  status: active
+- id: tagged
+  name: Tagged
+  domains:
+  - tagged.com
+  category: social
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Social discovery site requiring login to view live streams or user content.
+  extractor_keys: []
+  status: active
+- id: hi5
+  name: Hi5
+  domains:
+  - hi5.com
+  category: social
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Social discovery website requiring login to access media.
+  extractor_keys: []
+  status: active
+- id: ask_fm
+  name: Ask.fm
+  domains:
+  - ask.fm
+  category: community_forum
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Public video answers extractable via direct media links.
+  extractor_keys: []
+  status: active
+- id: weverse
+  name: Weverse
+  domains:
+  - weverse.io
+  category: community_forum
+  tier: login_or_paid
+  has_public_video: true
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: K-pop fan community. Media is DRM-protected and gated behind user login.
+  extractor_keys:
+  - Weverse
+  - WeverseLive
+  - WeverseLiveTab
+  - WeverseMedia
+  - WeverseMediaTab
+  - WeverseMoment
+  status: active
+- id: naver_band
+  name: Naver Band
+  domains:
+  - band.us
+  category: community_forum
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Public community band video posts supported; private bands require login.
+  extractor_keys: []
+  status: active
+- id: cyworld
+  name: Cyworld
+  domains:
+  - cyworld.com
+  category: social
+  tier: defunct
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 0
+  per_platform_rate_limit: 0/m
+  notes: Defunct Korean retro social network. Service has suspended web operations.
+  extractor_keys: []
+  status: defunct
+- id: mixi
+  name: Mixi
+  domains:
+  - mixi.jp
+  category: social
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Japanese private community network requiring SMS verification and login.
+  extractor_keys: []
+  status: active
+- id: ameba
+  name: Ameba
+  domains:
+  - ameblo.jp
+  - ameba.jp
+  category: creator_writing
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Japanese blogging network. Public blog video posts supported.
+  extractor_keys: []
+  status: active
+- id: niconico
+  name: Niconico
+  domains:
+  - nicovideo.jp
+  - sp.nicovideo.jp
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Japanese video platform. Dedicated Niconico extractor supported. Premium-only
+    videos refused.
+  extractor_keys:
+  - NicoNico
+  status: active
+- id: plurk
+  name: Plurk
+  domains:
+  - plurk.com
+  category: social
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Taiwanese microblogging service. Public timeline video links supported.
+  extractor_keys: []
+  status: active
+- id: gaia_online
+  name: Gaia Online
+  domains:
+  - gaiaonline.com
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Anime forum and virtual avatar community. No standalone video hosting.
+  extractor_keys: []
+  status: active
+- id: pixiv
+  name: Pixiv
+  domains:
+  - pixiv.net
+  category: photo_art
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Japanese artwork community. Ugoira (animated art) extraction supported via
+    Pixiv extractor.
+  extractor_keys: []
+  status: active
+- id: wattpad
+  name: Wattpad
+  domains:
+  - wattpad.com
+  category: creator_writing
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Story and novel reading platform. No standalone public video hosting.
+  extractor_keys: []
+  status: active
+- id: substack
+  name: Substack
+  domains:
+  - substack.com
+  category: creator_writing
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public video podcasts and posts supported. Paid subscriber newsletters are
+    refused.
+  extractor_keys:
+  - Substack
+  status: active
+- id: patreon
+  name: Patreon
+  domains:
+  - patreon.com
+  category: creator_writing
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Subscription paywall platform. Commercial creator content is strictly protected.
+  extractor_keys:
+  - patreon:campaign
+  - patreon
+  status: active
+- id: onlyfans
+  name: OnlyFans
+  domains:
+  - onlyfans.com
+  category: creator_writing
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 0
+  per_platform_rate_limit: 0/m
+  notes: Strictly paywalled, DRM-protected, adult subscription service. Downloads
+    prohibited by policy.
+  extractor_keys: []
+  status: active
+- id: ko_fi
+  name: Ko-fi
+  domains:
+  - ko-fi.com
+  category: creator_writing
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Public gallery video updates supported. Supporter-only tiers are refused.
+  extractor_keys: []
+  status: active
+- id: mix
+  name: Mix
+  domains:
+  - mix.com
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Content discovery bookmarking tool (formerly StumbleUpon). (Mixcloud is a
+    separate audio site).
+  extractor_keys: []
+  status: active
+- id: diaspora
+  name: Diaspora*
+  domains:
+  - diasporafoundation.org
+  - pod.geraspora.de
+  category: social
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Decentralized social web pod posts.
+  extractor_keys: []
+  status: active
+- id: minds
+  name: Minds
+  domains:
+  - minds.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 20
+  per_platform_rate_limit: 40/m
+  notes: Open-source social network. Public video posts supported via Minds extractor.
+  extractor_keys:
+  - minds:channel
+  - minds:group
+  - minds
+  status: active
+- id: ello
+  name: Ello
+  domains:
+  - ello.co
+  category: photo_art
+  tier: defunct
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 0
+  per_platform_rate_limit: 0/m
+  notes: Defunct art network. Ello announced complete shutdown and domain liquidation.
+  extractor_keys: []
+  status: defunct
+- id: vero
+  name: Vero
+  domains:
+  - vero.co
+  category: social
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 1080p
+  per_platform_concurrency: 15
+  per_platform_rate_limit: 30/m
+  notes: Public web share links supported via generic extractor.
+  extractor_keys: []
+  status: active
+- id: bereal
+  name: BeReal
+  domains:
+  - bereal.com
+  - bere.al
+  category: social
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Daily dual-camera photo sharing app. Gated in-app experience without public
+    video.
+  extractor_keys: []
+  status: active
+- id: lemon8
+  name: Lemon8
+  domains:
+  - lemon8-app.com
+  - lemon8.com
+  category: social
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: ByteDance lifestyle and video app. Dedicated Lemon8 extractor supported.
+  extractor_keys:
+  - Lemon8
+  status: active
+- id: triller
+  name: Triller
+  domains:
+  - triller.co
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 25
+  per_platform_rate_limit: 50/m
+  notes: Short-form music video platform. Dedicated Triller extractor supported.
+  extractor_keys:
+  - Triller
+  status: active
+- id: dailymotion
+  name: Dailymotion
+  domains:
+  - dailymotion.com
+  - dai.ly
+  category: video_audio
+  tier: supported
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: true
+  max_quality_expected: 1080p
+  per_platform_concurrency: 35
+  per_platform_rate_limit: 75/m
+  notes: Major video sharing platform. Dedicated Dailymotion extractor with multi-resolution
+    support.
+  extractor_keys:
+  - Dailymotion
+  status: active
+- id: lobsters
+  name: Lobsters
+  domains:
+  - lobste.rs
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Tech link aggregation and discussion. No video hosting.
+  extractor_keys: []
+  status: active
+- id: hackernews
+  name: Hacker News
+  domains:
+  - news.ycombinator.com
+  category: community_forum
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Y Combinator discussion board. Pure text/links only.
+  extractor_keys: []
+  status: active
+- id: slack
+  name: Slack
+  domains:
+  - slack.com
+  category: messaging
+  tier: login_or_paid
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Enterprise workplace messaging. Gated behind workspace credentials.
+  extractor_keys: []
+  status: active
+- id: element_matrix
+  name: Element (Matrix)
+  domains:
+  - element.io
+  - matrix.org
+  category: messaging
+  tier: unsupported_no_video
+  has_public_video: false
+  requires_login: true
+  supports_audio_only: false
+  max_quality_expected: none
+  per_platform_concurrency: 5
+  per_platform_rate_limit: 10/m
+  notes: Decentralized encrypted communication protocol. Rooms are private/invitation-based.
+  extractor_keys: []
+  status: active
+- id: pillowfort
+  name: Pillowfort
+  domains:
+  - pillowfort.social
+  category: social
+  tier: best_effort
+  has_public_video: true
+  requires_login: false
+  supports_audio_only: false
+  max_quality_expected: 720p
+  per_platform_concurrency: 10
+  per_platform_rate_limit: 20/m
+  notes: Community blogging platform. Public media posts extractable.
+  extractor_keys: []
+  status: active

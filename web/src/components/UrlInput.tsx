@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { Language, translations } from "@/lib/i18n";
-import { Search, Clipboard, X, Loader2, Sparkles } from "lucide-react";
+import { Search, Clipboard, X, Loader2, Sparkles, AlertCircle, CheckCircle2 } from "lucide-react";
+import { detectQuickPlatform } from "@/lib/platform-detector";
 
 interface UrlInputProps {
   lang: Language;
@@ -15,6 +17,10 @@ export function UrlInput({ lang, onSearch, isLoading, initialUrl = "" }: UrlInpu
   const [url, setUrl] = useState(initialUrl);
   const [validationError, setValidationError] = useState<string | null>(null);
   const t = translations[lang];
+
+  const detectedPlatform = useMemo(() => {
+    return detectQuickPlatform(url);
+  }, [url]);
 
   const handlePaste = async () => {
     try {
@@ -49,6 +55,16 @@ export function UrlInput({ lang, onSearch, isLoading, initialUrl = "" }: UrlInpu
       }
     } catch {
       setValidationError(t.invalidUrlError);
+      return;
+    }
+
+    // Early tier refusal check
+    if (detectedPlatform && (detectedPlatform.tier === "unsupported_no_video" || detectedPlatform.tier === "login_or_paid" || detectedPlatform.tier === "defunct")) {
+      setValidationError(
+        lang === "bn"
+          ? (detectedPlatform.warningBn || "এই প্ল্যাটফর্মটি ডাউনলোডের জন্য সমর্থিত নয়।")
+          : (detectedPlatform.warningEn || "This platform is not supported for public downloads.")
+      );
       return;
     }
 
@@ -121,19 +137,41 @@ export function UrlInput({ lang, onSearch, isLoading, initialUrl = "" }: UrlInpu
           </button>
         </div>
 
+        {/* Live Detected Platform Badge */}
+        {detectedPlatform && !validationError && (
+          <div className="mt-2 flex items-center gap-2 px-3 text-xs">
+            {detectedPlatform.tier === "supported" ? (
+              <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                <CheckCircle2 className="w-3 h-3" />
+                {detectedPlatform.name} — {lang === "bn" ? "পূর্ণ সমর্থিত" : "Fully Supported"}
+              </span>
+            ) : detectedPlatform.tier === "best_effort" ? (
+              <span className="inline-flex items-center gap-1 text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">
+                ● {detectedPlatform.name} — {lang === "bn" ? "বেস্ট-এফোর্ট সমর্থিত" : "Best Effort Supported"}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                <AlertCircle className="w-3 h-3" />
+                {detectedPlatform.name} — {lang === "bn" ? "ভিডিও ডাউনলোড প্রযোজ্য নয়" : "Not Supported"}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Validation warning */}
         {validationError && (
-          <p className="mt-2 text-xs sm:text-sm text-rose-500 font-medium px-2">
-            {validationError}
-          </p>
+          <div className="mt-2.5 flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-2.5 rounded-xl text-xs sm:text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <p className="flex-1 font-medium">{validationError}</p>
+          </div>
         )}
       </form>
 
-      {/* Helpful hint chips */}
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      {/* Helpful hint chips with Link to full 100 platforms matrix */}
+      <div className="mt-3.5 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-amber-500" />
-          {t.supportedPlatforms}
+          {t.supportedPlatforms}:
         </span>
         <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800">
           YouTube
@@ -150,6 +188,12 @@ export function UrlInput({ lang, onSearch, isLoading, initialUrl = "" }: UrlInpu
         <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800">
           X / Twitter
         </span>
+        <Link
+          href="/platforms"
+          className="ml-1 text-indigo-400 hover:text-indigo-300 underline font-medium cursor-pointer"
+        >
+          {lang === "bn" ? "+ ১০০টি প্ল্যাটফর্মের পূর্ণ তালিকা" : "+ Full 100 Platforms Matrix"} →
+        </Link>
       </div>
     </div>
   );

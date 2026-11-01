@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import redis
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, Query, Request, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -241,6 +242,46 @@ async def create_download_job(
             f"Video duration ({media_info.duration // 60}m) exceeds platform maximum of {settings.MAX_VIDEO_DURATION_SECONDS // 60}m."
         )
 
+    # 8b. Deduplication: return active job if identical download is already in progress
+    dedup_stmt = (
+        select(DownloadJob)
+        .where(
+            DownloadJob.url_hash.in_([raw_url_hash, canon_url_hash]),
+            DownloadJob.format_id == payload.format_id,
+            DownloadJob.status.in_([JobStatus.QUEUED, JobStatus.PROCESSING]),
+        )
+        .order_by(DownloadJob.created_at.desc())
+    )
+    existing_job = (await db.execute(dedup_stmt)).scalars().first()
+    if existing_job:
+        dedup_token = generate_job_access_token(str(existing_job.id))
+        dedup_progress = existing_job.progress
+        dedup_speed = existing_job.speed
+        dedup_eta = existing_job.eta
+        if redis_client:
+            try:
+                cached_p = redis_client.get(f"job:{existing_job.id}:progress")
+                if cached_p:
+                    p_dict = json.loads(cached_p)
+                    dedup_progress = float(p_dict.get("progress", dedup_progress))
+                    dedup_speed = p_dict.get("speed", dedup_speed)
+                    dedup_eta = p_dict.get("eta", dedup_eta)
+            except Exception:
+                pass
+
+        return JobStatusResponse(
+            job_id=str(existing_job.id),
+            status=existing_job.status.value,
+            progress=dedup_progress,
+            speed=dedup_speed,
+            eta=dedup_eta,
+            file_size=existing_job.file_size,
+            download_url=existing_job.download_url,
+            created_at=existing_job.created_at.isoformat(),
+            expires_at=existing_job.expires_at.isoformat(),
+            job_access_token=dedup_token,
+        )
+
     # 9. Create database record
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=settings.JOB_EXPIRY_MINUTES)
@@ -368,14 +409,12 @@ async def download_file(
 
     presigned_url = None
     if os.path.isabs(job.file_path) and os.path.exists(job.file_path):
-        # File is on local disk
         pass
     else:
         storage = get_storage()
         if not storage.exists(job.file_path):
             raise JobNotFoundError("The requested file has expired or was pruned by the cleanup janitor.")
 
-        # If storage backend supports direct presigned URL (e.g. Cloudflare R2), redirect client
         presigned_url = storage.get_presigned_url(
             object_key=job.file_path,
             filename=safe_filename,
@@ -410,6 +449,167 @@ async def download_file(
         path=job.file_path,
         media_type=media_type,
         headers={"Content-Disposition": content_disposition},
+    )
+
+
+@router.get(
+    "/downloads/{job_id}/stream",
+    summary="Server-Sent Events (SSE) stream for download progress",
+    description="Subscribes to Redis pub/sub channel for real-time progress events with keepalive.",
+    responses={
+        200: {
+            "description": "SSE Event stream",
+            "content": {"text/event-stream": {}},
+        },
+        404: {"model": ErrorResponse, "description": "Job not found"},
+    },
+)
+async def stream_download_progress(
+    job_id: str,
+    request: Request,
+    token: Optional[str] = Query(None),
+    x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Streams real-time download progress events over SSE."""
+    clean_id_str = urllib.parse.unquote(str(job_id)).strip()
+    try:
+        parsed_uuid = uuid.UUID(clean_id_str)
+    except ValueError:
+        raise JobNotFoundError("Invalid job UUID format.")
+
+    stmt = select(DownloadJob).where(DownloadJob.id == parsed_uuid)
+    res = await db.execute(stmt)
+    job = res.scalars().first()
+
+    if not job:
+        raise JobNotFoundError("Job not found or has expired.")
+
+    # Access token validation if supplied
+    provided_token = token or x_job_token
+    if provided_token and not verify_job_access_token(provided_token, str(job.id)):
+        raise AppError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            error_code="ACCESS_DENIED",
+            message="Invalid or tampered job access token.",
+        )
+
+    channel_name = f"channel:job:{job.id}"
+
+    async def event_generator():
+        # 1. Emit initial state immediately
+        initial_progress = job.progress
+        initial_speed = job.speed
+        initial_eta = job.eta
+        initial_status = job.status.value
+
+        # Check Redis cached progress overlay
+        r = None
+        try:
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            cached_data = await r.get(f"job:{job.id}:progress")
+            if cached_data:
+                p_dict = json.loads(cached_data)
+                initial_progress = float(p_dict.get("progress", initial_progress))
+                initial_speed = p_dict.get("speed", initial_speed)
+                initial_eta = p_dict.get("eta", initial_eta)
+                initial_status = p_dict.get("status", initial_status)
+        except Exception:
+            r = None
+
+        initial_payload = {
+            "job_id": str(job.id),
+            "status": initial_status,
+            "progress": initial_progress,
+            "speed": initial_speed,
+            "eta": initial_eta,
+            "file_size": job.file_size,
+            "download_url": job.download_url,
+            "created_at": job.created_at.isoformat(),
+            "expires_at": job.expires_at.isoformat(),
+        }
+        yield f"data: {json.dumps(initial_payload)}\n\n"
+
+        # If job is already in terminal state, terminate stream immediately
+        if initial_status in [
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+            JobStatus.EXPIRED.value,
+        ]:
+            if r:
+                await r.aclose()
+            return
+
+        # 2. Subscribe to Redis pubsub
+        pubsub = None
+        if r:
+            try:
+                pubsub = r.pubsub()
+                await pubsub.subscribe(channel_name)
+            except Exception:
+                pubsub = None
+
+        try:
+            last_ping = asyncio.get_event_loop().time()
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                message = None
+                if pubsub:
+                    try:
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=1.0
+                        )
+                    except Exception:
+                        message = None
+
+                if message and message.get("type") == "message":
+                    raw_data = message.get("data")
+                    if raw_data:
+                        yield f"data: {raw_data}\n\n"
+                        try:
+                            msg_dict = json.loads(raw_data)
+                            st = msg_dict.get("status")
+                            if st in [
+                                JobStatus.COMPLETED.value,
+                                JobStatus.FAILED.value,
+                                JobStatus.CANCELLED.value,
+                                JobStatus.EXPIRED.value,
+                            ]:
+                                break
+                        except Exception:
+                            pass
+                else:
+                    await asyncio.sleep(0.5)
+
+                now = asyncio.get_event_loop().time()
+                if now - last_ping >= 15.0:
+                    yield ": keepalive\n\n"
+                    last_ping = now
+
+        finally:
+            if pubsub:
+                try:
+                    await pubsub.unsubscribe(channel_name)
+                    await pubsub.aclose()
+                except Exception:
+                    pass
+            if r:
+                try:
+                    await r.aclose()
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

@@ -8,6 +8,8 @@ import {
   HealthResponse,
   JobStatusResponse,
   MediaInfoResponse,
+  PlatformDetectResponse,
+  PlatformsListResponse,
   TakedownRequest,
   TakedownResponse,
   UrlExtractRequest,
@@ -61,65 +63,87 @@ export class AnyStreamApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-    const headers = new Headers(options.headers || {});
-    
-    if (!headers.has("Accept")) {
-      headers.set("Accept", "application/json");
-    }
+    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = `${this.baseUrl}${cleanEndpoint}`;
 
-    if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("Content-Type") && options.body && typeof options.body === "string") {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
 
-    if (!response.ok) {
-      let errorData: ErrorResponse;
-      try {
-        errorData = await response.json();
-      } catch {
-        errorData = {
-          error_code: `HTTP_${response.status}`,
-          message: response.statusText || `Request failed with status ${response.status}`,
-          details: {},
-        };
+      if (!response.ok) {
+        let errorData: ErrorResponse;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = {
+            error_code: `HTTP_${response.status}`,
+            message: response.statusText || "Request failed without message",
+          };
+        }
+        throw new ApiClientError(response.status, errorData);
       }
-      throw new ApiClientError(response.status, errorData);
-    }
 
-    return (await response.json()) as T;
+      return (await response.json()) as T;
+    } catch (err: unknown) {
+      if (err instanceof ApiClientError) {
+        throw err;
+      }
+      throw new ApiClientError(500, {
+        error_code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : "Network communication failed.",
+      });
+    }
   }
 
   /**
-   * System health check
+   * Health check
    */
   public async getHealth(): Promise<HealthResponse> {
-    return this.request<HealthResponse>("/health", {
+    return this.request<HealthResponse>("/health", { method: "GET" });
+  }
+
+  /**
+   * Retrieve platforms registry
+   */
+  public async getPlatforms(tier?: string, category?: string): Promise<PlatformsListResponse> {
+    const params = new URLSearchParams();
+    if (tier) params.set("tier", tier);
+    if (category) params.set("category", category);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return this.request<PlatformsListResponse>(`/api/v1/platforms${qs}`, { method: "GET" });
+  }
+
+  /**
+   * Detect platform and policy permission from a URL
+   */
+  public async detectPlatform(url: string): Promise<PlatformDetectResponse> {
+    return this.request<PlatformDetectResponse>(`/api/v1/platforms/detect?url=${encodeURIComponent(url.trim())}`, {
       method: "GET",
-      cache: "no-store",
     });
   }
 
   /**
-   * Validate URL against SSRF policy and retrieve format details
+   * Extract video metadata from URL
    */
-  public async getMediaInfo(
-    url: string,
-    captchaToken?: string | null
-  ): Promise<MediaInfoResponse> {
-    const payload: UrlExtractRequest = {
-      url: url.trim(),
-      captcha_token: captchaToken || null,
-    };
-
+  public async extractInfo(payload: UrlExtractRequest): Promise<MediaInfoResponse> {
     return this.request<MediaInfoResponse>("/api/v1/info", {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  }
+
+  /**
+   * Alias for getMediaInfo
+   */
+  public async getMediaInfo(url: string, captchaToken?: string | null): Promise<MediaInfoResponse> {
+    return this.extractInfo({ url, captcha_token: captchaToken });
   }
 
   /**
@@ -177,4 +201,3 @@ export class AnyStreamApiClient {
 
 // Default singleton client instance
 export const apiClient = new AnyStreamApiClient();
-
