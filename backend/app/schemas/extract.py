@@ -39,15 +39,23 @@ class UrlExtractRequest(BaseModel):
 class FormatOption(BaseModel):
     """Describes a single downloadable stream or quality preset."""
 
-    format_id: str = Field(..., description="Internal format selector for yt-dlp", max_length=64)
-    resolution: Optional[str] = Field(default=None, description="Display resolution (e.g. 1080p, 720p)")
+    format_id: str = Field(..., description="Internal format selector for yt-dlp", max_length=128)
+    resolution: Optional[str] = Field(default=None, description="Display resolution (e.g. 4K, 1080p, 720p)")
     height: Optional[int] = Field(default=None, description="Vertical pixel count")
     fps: Optional[float] = Field(default=None, description="Frames per second")
-    ext: str = Field(..., description="File container extension (mp4, webm, m4a, mp3)", max_length=16)
+    ext: str = Field(..., description="File container extension (mp4, webm, mkv, m4a, mp3)", max_length=16)
     format_note: str = Field(..., description="Human-readable quality description", max_length=128)
     filesize_approx: Optional[int] = Field(default=None, description="Estimated byte count")
     is_audio_only: bool = Field(default=False, description="Flag identifying audio-only tracks")
     abr: Optional[float] = Field(default=None, description="Audio bitrate in kbps")
+    # Best-quality pipeline additions:
+    vcodec: Optional[str] = Field(default=None, description="Video codec identifier (e.g. av01, vp09, h264)")
+    acodec: Optional[str] = Field(default=None, description="Audio codec identifier (e.g. opus, aac, mp3)")
+    is_hdr: bool = Field(default=False, description="Whether the stream is High Dynamic Range (HDR)")
+    dynamic_range: Optional[str] = Field(default=None, description="Dynamic range format (SDR, HDR10, HLG)")
+    tbr: Optional[float] = Field(default=None, description="Total bitrate in kbps")
+    mode: str = Field(default="original", description="Mode: 'original' (best original stream) or 'compatible_mp4' (H.264/AAC universal)")
+    is_best: bool = Field(default=False, description="Identifies the highest overall fidelity option")
 
 
 class MediaInfoResponse(BaseModel):
@@ -61,4 +69,6 @@ class MediaInfoResponse(BaseModel):
     uploader: Optional[str] = Field(default=None, description="Channel or creator name")
     is_live: bool = Field(default=False, description="Whether media is an active livestream")
     formats: List[FormatOption] = Field(default_factory=list, description="Available quality streams")
-
+    platform_id: Optional[str] = Field(default=None, description="Matched platform ID from registry")
+    platform_tier: Optional[str] = Field(default=None, description="Matched platform support tier")
+    extractor_key: Optional[str] = Field(default=None, description="yt-dlp extractor name used")

@@ -168,17 +168,23 @@ def download_media_task(
             update_progress_in_redis(job_id, progress_data)
             last_update_time = now
 
-    # 5. Build yt-dlp configuration
-    clean_format_id = format_id.replace("+mp3", "")
+    # 5. Build yt-dlp configuration with format_sort
+    needs_mp4_transcode = ":transcode_mp4" in format_id
+    clean_format_id = format_id.replace(":transcode_mp4", "").replace("+mp3_320", "").replace("+mp3", "")
+    is_mp3 = "+mp3" in format_id
+    mp3_quality = "320" if "+mp3_320" in format_id else "192"
+
     if is_audio_only and clean_format_id in ["best", ""]:
         clean_format_id = "bestaudio/best"
     elif not is_audio_only and clean_format_id in ["best", ""]:
         clean_format_id = "bestvideo+bestaudio/best"
+
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "outtmpl": output_template,
         "format": clean_format_id,
+        "format_sort": ["res", "fps", "hdr:12", "vcodec", "channels", "acodec", "size", "br"],
         "max_filesize": settings.MAX_FILE_SIZE_BYTES,
         "socket_timeout": 60,
         "retries": 10,
@@ -193,17 +199,18 @@ def download_media_task(
 
     # Audio extraction postprocessor
     if is_audio_only:
-        target_audio_codec = "mp3" if "+mp3" in format_id else "m4a"
         ydl_opts["postprocessors"] = [
             {
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": target_audio_codec,
-                "preferredquality": "192",
+                "preferredcodec": "mp3" if is_mp3 else "m4a",
+                "preferredquality": mp3_quality if is_mp3 else "192",
             }
         ]
     else:
-        # Merge video and audio into universal MP4 container
-        ydl_opts["merge_output_format"] = "mp4"
+        if needs_mp4_transcode:
+            ydl_opts["merge_output_format"] = "mp4"
+        else:
+            ydl_opts["merge_output_format"] = "mkv"
 
     # 6. Execute extraction and download
     try:
@@ -213,13 +220,37 @@ def download_media_task(
 
         # Locate finalized file on disk
         matching_files = glob.glob(os.path.join(settings.STORAGE_DIR, f"{job_id}.*"))
-        # Filter out temporary/part files
         valid_files = [f for f in matching_files if not f.endswith((".part", ".ytdl", ".temp"))]
 
         if not valid_files:
             raise DownloadError("Finalized media file was not created on disk.")
 
         final_path = valid_files[0]
+
+        # If compatible MP4 requested, transcode or remux
+        if needs_mp4_transcode and not is_audio_only:
+            try:
+                from app.services.transcoder import convert_to_compatible_mp4
+                compat_path = os.path.join(settings.STORAGE_DIR, f"{job_id}_compat.mp4")
+                convert_to_compatible_mp4(final_path, compat_path)
+                try:
+                    os.remove(final_path)
+                except OSError:
+                    pass
+                final_path = compat_path
+            except Exception as trans_err:
+                logger.warning("Compatible MP4 transcode failed (%s). Retaining original container.", str(trans_err))
+
+        # Media integrity verification via ffprobe
+        from app.services.transcoder import verify_media_integrity
+        is_valid, integrity_err = verify_media_integrity(
+            final_path,
+            expect_video=not is_audio_only,
+            expect_audio=True,
+        )
+        if not is_valid:
+            logger.warning("Integrity check warning for Job [%s]: %s", job_id, integrity_err)
+
         actual_size = os.path.getsize(final_path)
         file_ext = os.path.splitext(final_path)[1].lstrip(".")
 

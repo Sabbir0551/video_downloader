@@ -88,7 +88,7 @@ export default function DmcaPage() {
         declaration_truth: declaration,
       });
 
-      setCaseId(response.case_id);
+      setCaseId(response.case_id || response.reference_id || null);
       setSuccessMessage(response.message);
     } catch (err: unknown) {
       if (err instanceof ApiClientError) {

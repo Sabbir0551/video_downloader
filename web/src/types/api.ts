@@ -25,6 +25,13 @@ export interface FormatOption {
   filesize_approx?: number | null;
   is_audio_only: boolean;
   abr?: number | null;
+  vcodec?: string | null;
+  acodec?: string | null;
+  is_hdr?: boolean;
+  dynamic_range?: string | null;
+  tbr?: number | null;
+  mode?: string;
+  is_best?: boolean;
 }
 
 export interface MediaInfoResponse {
@@ -37,6 +44,9 @@ export interface MediaInfoResponse {
   extractor?: string | null;
   is_live?: boolean;
   formats: FormatOption[];
+  platform_id?: string | null;
+  platform_tier?: string | null;
+  extractor_key?: string | null;
 }
 
 export interface UrlExtractRequest {
@@ -50,6 +60,7 @@ export interface CreateJobRequest {
   audio_only?: boolean;
   quality_label?: string | null;
   captcha_token?: string | null;
+  mode?: string;
 }
 
 export interface JobStatusResponse {
@@ -62,35 +73,36 @@ export interface JobStatusResponse {
   download_url?: string | null;
   created_at: string;
   expires_at: string;
-  job_access_token?: string | null;
   error_code?: string | null;
   error_message?: string | null;
+  job_access_token?: string | null;
 }
 
 export interface TakedownRequest {
   requester_name: string;
   requester_email: string;
-  copyrighted_work_url: string;
-  infringing_url: string;
+  copyrighted_work_url?: string | null;
+  infringing_url?: string;
+  target_url?: string;
   statement?: string | null;
-  declaration_truth: boolean;
+  declaration_truth?: boolean;
 }
 
 export interface TakedownResponse {
-  case_id: string;
   status: string;
   message: string;
+  reference_id?: string;
+  case_id?: string;
+  target_url?: string;
   created_at: string;
 }
 
 export interface HealthResponse {
   status: string;
-  project: string;
   version: string;
-  environment: string;
-  database: string;
-  cache: string;
   ytdlp_version: string;
+  database: string;
+  redis: string;
 }
 
 export interface ErrorResponse {
@@ -98,7 +110,6 @@ export interface ErrorResponse {
   message: string;
   details?: Record<string, unknown>;
 }
-
 
 export interface PlatformMetadata {
   id: string;

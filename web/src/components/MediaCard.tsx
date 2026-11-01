@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { FormatOption, MediaInfoResponse } from "@/types/api";
 import { Language, translations } from "@/lib/i18n";
-import { Video, Music, Clock, User, Download, CheckCircle2 } from "lucide-react";
+import { Video, Music, Clock, User, Download, CheckCircle2, Sparkles } from "lucide-react";
 
 interface MediaCardProps {
   media: MediaInfoResponse;
@@ -98,18 +98,25 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                   {media.extractor}
                 </span>
               )}
+              {media.platform_id && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-semibold text-emerald-400">
+                  {media.platform_id.toUpperCase()}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {t.selectedQuality} <strong className="text-blue-600 dark:text-blue-400 font-semibold">{selectedLabel}</strong>
-            </span>
+          {/* Selected Quality & Download CTA Banner */}
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              <span>{t.selectedQuality}: </span>
+              <strong className="text-slate-800 dark:text-slate-200">{selectedLabel}</strong>
+            </div>
 
             <button
               onClick={() => onStartDownload(selectedFormatId, selectedIsAudio, selectedLabel)}
               disabled={isStarting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 transition-all disabled:opacity-60 cursor-pointer"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm shadow-md shadow-blue-500/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Download className="w-4 h-4" />
               <span>{isStarting ? t.starting : t.downloadNow}</span>
@@ -146,13 +153,8 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
               onClick={() => {
                 setActiveTab("audio");
                 setSelectedIsAudio(true);
-                if (audioFormats.length > 0) {
-                  setSelectedFormatId(audioFormats[0].format_id);
-                  setSelectedLabel(audioFormats[0].resolution || "MP3");
-                } else {
-                  setSelectedFormatId("bestaudio+mp3");
-                  setSelectedLabel("MP3 (192kbps)");
-                }
+                setSelectedFormatId("bestaudio+mp3");
+                setSelectedLabel("MP3 (192kbps)");
               }}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "audio"
@@ -183,11 +185,12 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                 {selectedFormatId === "best" && !selectedIsAudio && (
                   <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
-                <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                <div className="flex items-center gap-1 font-bold text-sm text-slate-900 dark:text-slate-100">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                   {t.bestQuality}
                 </div>
                 <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
-                  MP4 (HD / Auto)
+                  Auto • Best Available
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
                   {t.optimalQuality}
@@ -195,14 +198,14 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
               </button>
 
               {/* Individual video format options */}
-              {videoFormats.slice(0, 7).map((fmt) => {
+              {videoFormats.map((fmt) => {
                 const isSelected = selectedFormatId === fmt.format_id && !selectedIsAudio;
                 const label = fmt.resolution || fmt.ext.toUpperCase();
                 return (
                   <button
                     key={fmt.format_id}
                     type="button"
-                    onClick={() => handleSelectFormat(fmt.format_id, false, label)}
+                    onClick={() => handleSelectFormat(fmt.format_id, false, fmt.format_note || label)}
                     className={`relative p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       isSelected
                         ? "bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20"
@@ -212,14 +215,22 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                     {isSelected && (
                       <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                     )}
-                    <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                      {label}
+                    <div className="flex items-center gap-1.5 font-bold text-sm text-slate-900 dark:text-slate-100">
+                      <span>{label}</span>
+                      {fmt.is_hdr && (
+                        <span className="px-1 py-0.2 text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
+                          HDR
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium mt-0.5 uppercase">
-                      {fmt.ext} {fmt.fps ? `• ${fmt.fps}fps` : ""}
+                      {fmt.ext} {fmt.fps && fmt.fps >= 50 ? `• ${Math.round(fmt.fps)}fps` : ""}
                     </div>
-                    <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                      {fmt.filesize ? formatBytes(fmt.filesize) : t.estSizeAuto}
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                      <span>{fmt.filesize_approx ? formatBytes(fmt.filesize_approx) : t.estSizeAuto}</span>
+                      <span className="capitalize text-[9px] text-slate-500">
+                        {fmt.mode === "compatible_mp4" ? "MP4" : "Original"}
+                      </span>
                     </div>
                   </button>
                 );
@@ -227,17 +238,17 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
             </>
           ) : (
             <>
-              {/* Audio MP3 Tile */}
+              {/* Primary MP3 Option */}
               <button
                 type="button"
-                onClick={() => handleSelectFormat("bestaudio+mp3", true, "MP3 (192kbps)")}
+                onClick={() => handleSelectFormat("bestaudio+mp3", true, t.mp3Title)}
                 className={`relative p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                  selectedFormatId === "bestaudio+mp3"
+                  selectedFormatId === "bestaudio+mp3" && selectedIsAudio
                     ? "bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20"
                     : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
                 }`}
               >
-                {selectedFormatId === "bestaudio+mp3" && (
+                {selectedFormatId === "bestaudio+mp3" && selectedIsAudio && (
                   <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
                 <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
@@ -251,39 +262,38 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                 </div>
               </button>
 
-              {/* Audio M4A / AAC Tile */}
+              {/* Primary M4A Option */}
               <button
                 type="button"
-                onClick={() => handleSelectFormat("bestaudio", true, "M4A (AAC)")}
+                onClick={() => handleSelectFormat("bestaudio", true, t.m4aTitle)}
                 className={`relative p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                  selectedFormatId === "bestaudio"
+                  selectedFormatId === "bestaudio" && selectedIsAudio
                     ? "bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20"
                     : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
                 }`}
               >
-                {selectedFormatId === "bestaudio" && (
+                {selectedFormatId === "bestaudio" && selectedIsAudio && (
                   <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
                 <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
                   {t.m4aTitle}
                 </div>
                 <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
-                  {t.m4aDesc}
+                  M4A / AAC Original
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  {t.directAacStream}
+                  High Fidelity
                 </div>
               </button>
 
-              {/* Available direct audio streams */}
-              {audioFormats.slice(0, 2).map((fmt) => {
-                const isSelected = selectedFormatId === fmt.format_id;
-                const label = fmt.resolution || fmt.ext.toUpperCase();
+              {/* Additional extracted audio streams */}
+              {audioFormats.map((afmt) => {
+                const isSelected = selectedFormatId === afmt.format_id && selectedIsAudio;
                 return (
                   <button
-                    key={fmt.format_id}
+                    key={afmt.format_id}
                     type="button"
-                    onClick={() => handleSelectFormat(fmt.format_id, true, label)}
+                    onClick={() => handleSelectFormat(afmt.format_id, true, afmt.format_note || afmt.ext.toUpperCase())}
                     className={`relative p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       isSelected
                         ? "bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20"
@@ -293,14 +303,14 @@ export function MediaCard({ media, lang, onStartDownload, isStarting }: MediaCar
                     {isSelected && (
                       <CheckCircle2 className="absolute top-2.5 right-2.5 w-4 h-4 text-blue-600 dark:text-blue-400" />
                     )}
-                    <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                      {label}
+                    <div className="font-bold text-sm text-slate-900 dark:text-slate-100 uppercase">
+                      {afmt.ext} {afmt.abr ? `(${Math.round(afmt.abr)}k)` : ""}
                     </div>
-                    <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium mt-0.5 uppercase">
-                      {fmt.ext}
+                    <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5 truncate">
+                      {afmt.format_note || "Audio Only"}
                     </div>
                     <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                      {fmt.filesize ? formatBytes(fmt.filesize) : t.estSizeAuto}
+                      {afmt.filesize_approx ? formatBytes(afmt.filesize_approx) : t.estSizeAuto}
                     </div>
                   </button>
                 );

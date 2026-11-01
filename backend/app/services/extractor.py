@@ -2,11 +2,12 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import redis
 import yt_dlp
-from yt_dlp.utils import DownloadError, ExtractorError
+from yt_dlp.utils import DownloadError
 
 from app.core.config import settings
 from app.core.errors import (
@@ -16,47 +17,102 @@ from app.core.errors import (
     RateLimitExceededError,
     UnsupportedUrlError,
 )
-from app.core.security import normalize_video_url, sanitize_display_title, sanitize_filename
 from app.core.ssrf import safe_network_guard
+from app.platforms.registry import get_platform_registry
 from app.schemas.extract import FormatOption, MediaInfoResponse
 
 logger = logging.getLogger("anystream.extractor")
 
-# Redis connection for caching extraction metadata
+# Optional Redis connection for info caching
+redis_client: Optional[redis.Redis] = None
 try:
-    redis_client = redis.Redis.from_url(
-        settings.REDIS_URL,
-        decode_responses=True,
-        socket_connect_timeout=0.5,
-        socket_timeout=0.5,
-    )
-except Exception:
-    redis_client = None
+    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+except Exception as e:
+    logger.warning("Redis not available for info caching: %s", str(e))
 
 
 class SilentLogger:
-    """Disables noisy yt-dlp stdout logging to preserve clean structured logs."""
+    """Disables noisy yt-dlp standard logging while retaining structured error traces."""
+
     def debug(self, msg: str) -> None:
+        pass
+
+    def info(self, msg: str) -> None:
         pass
 
     def warning(self, msg: str) -> None:
         pass
 
     def error(self, msg: str) -> None:
-        pass
+        logger.error("yt-dlp core error: %s", msg)
+
+
+def sanitize_display_title(title: Optional[str]) -> str:
+    """Removes terminal control codes, excessive whitespace, and dangerous HTML tags."""
+    if not title:
+        return "Untitled Media"
+    # Strip HTML tags
+    clean = re.sub(r"<[^>]+>", "", title)
+    # Strip non-printable / control characters
+    clean = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", clean)
+    clean = " ".join(clean.split())
+    return clean[:200] if clean else "Untitled Media"
+
+
+def normalize_video_url(raw_url: str) -> tuple[str, Optional[str]]:
+    """
+    Normalizes a video URL:
+    - Strips tracking / analytics query parameters (utm_*, fbclid, si, etc.).
+    - Extracts canonical video ID where feasible.
+    """
+    parsed = urlparse(raw_url)
+    tracking_prefixes = ("utm_", "fbclid", "gclid", "msclkid", "si", "ref", "feature")
+
+    # Filter query parameters
+    query_params = parse_qs(parsed.query, keep_blank_values=False)
+    filtered_params = {
+        k: v for k, v in query_params.items()
+        if not any(k.lower().startswith(prefix) for prefix in tracking_prefixes)
+    }
+
+    canonical_id: Optional[str] = None
+    hostname = (parsed.hostname or "").lower()
+
+    # YouTube: preserve 'v' parameter
+    if "youtube.com" in hostname:
+        if "v" in filtered_params:
+            canonical_id = filtered_params["v"][0]
+            filtered_params = {"v": [canonical_id]}
+    elif "youtu.be" in hostname:
+        path_parts = parsed.path.strip("/").split("/")
+        if path_parts and path_parts[0]:
+            canonical_id = path_parts[0]
+
+    # Reconstruct normalized URL
+    clean_query = urlencode(filtered_params, doseq=True)
+    canonical_url = urlunparse((
+        parsed.scheme.lower(),
+        hostname,
+        parsed.path,
+        parsed.params,
+        clean_query,
+        "",  # Strip fragment
+    ))
+
+    return canonical_url, canonical_id
 
 
 def get_ydl_options() -> Dict[str, Any]:
-    """Default secure configuration dictionary for yt_dlp.YoutubeDL."""
+    """Returns hardened default options for yt-dlp metadata extraction."""
     return {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
-        "socket_timeout": 30,
+        "socket_timeout": 15,
+        "retries": 3,
         "noplaylist": True,
         "no_color": True,
-        "ignoreerrors": False,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "js_runtimes": {"node": {}},
         "logger": SilentLogger(),
@@ -110,27 +166,43 @@ def map_ytdlp_error(err: Exception) -> AppError:
     return UnsupportedUrlError("Unable to retrieve information for this URL. Please verify the link is publicly accessible.")
 
 
-def normalize_formats(formats: List[Dict[str, Any]], duration: int) -> List[FormatOption]:
+def normalize_formats(
+    formats: List[Dict[str, Any]],
+    duration: int,
+    url: Optional[str] = None,
+) -> List[FormatOption]:
     """
-    Parses and deduplicates raw stream formats into a clean, intuitive quality picker:
-    - High-quality video options (e.g. 1080p, 720p, 480p, 360p, 240p, 144p).
-    - Audio-only options (e.g. M4A and universal MP3).
+    Best-quality pipeline format normalizer:
+    1. Identifies best audio stream (highest bitrate Opus/AAC) and best AAC audio (for universal MP4).
+    2. Groups video streams by vertical resolution (up to 4K / 8K).
+    3. Detects HDR, codecs, fps, and estimated byte size.
+    4. Provides two modes per resolution:
+       - 'original': Best fidelity native stream (AV1/VP9/H.264, container mkv/webm/mp4).
+       - 'compatible_mp4': Universal playback (H.264/AAC in MP4).
+    5. Applies per-platform quality caps from registry.
+    6. Audio-only options: best original (M4A/Opus) and MP3 (320kbps / 192kbps).
     """
     if not formats:
         return []
 
-    # 1. Identify best audio stream for multiplexing
+    # 1. Identify best audio streams
     best_audio: Optional[Dict[str, Any]] = None
     best_audio_abr: float = 0.0
 
+    best_aac_audio: Optional[Dict[str, Any]] = None
+    best_aac_abr: float = 0.0
+
     for fmt in formats:
-        acodec = fmt.get("acodec", "none")
-        vcodec = fmt.get("vcodec", "none")
+        acodec = fmt.get("acodec", "none") or "none"
+        vcodec = fmt.get("vcodec", "none") or "none"
         if acodec != "none" and vcodec == "none":
             abr = float(fmt.get("abr") or fmt.get("tbr") or 0.0)
             if abr > best_audio_abr:
                 best_audio_abr = abr
                 best_audio = fmt
+            if any(aac_sub in acodec.lower() for aac_sub in ("aac", "mp4a")) and abr > best_aac_abr:
+                best_aac_abr = abr
+                best_aac_audio = fmt
 
     best_audio_id = best_audio.get("format_id") if best_audio else None
     best_audio_size = (
@@ -138,120 +210,239 @@ def normalize_formats(formats: List[Dict[str, Any]], duration: int) -> List[Form
         if best_audio else None
     )
     if not best_audio_size and best_audio_abr and duration:
-        # Estimate audio bytes: (kbps * 1000 / 8) * duration
         best_audio_size = int((best_audio_abr * 125) * duration)
 
-    # 2. Extract and group video streams by vertical resolution
-    video_resolutions: Dict[int, Dict[str, Any]] = {}
+    aac_audio_id = (best_aac_audio.get("format_id") if best_aac_audio else None) or best_audio_id
+    aac_audio_size = (
+        (best_aac_audio.get("filesize") or best_aac_audio.get("filesize_approx"))
+        if best_aac_audio else best_audio_size
+    )
+
+    # 2. Extract video streams grouped by height
+    # Map height -> list of video formats
+    by_height: Dict[int, List[Dict[str, Any]]] = {}
 
     for fmt in formats:
         height = fmt.get("height")
-        vcodec = fmt.get("vcodec", "none")
+        vcodec = fmt.get("vcodec", "none") or "none"
         ext = fmt.get("ext", "mp4")
 
-        # Ignore audio-only formats in video pass
+        # Ignore audio-only or invalid heights
         if vcodec == "none" or not height or height < 144:
             continue
 
         # Skip storyboards and low-quality manifests
-        protocol = fmt.get("protocol", "")
+        protocol = fmt.get("protocol", "") or ""
         if "mhtml" in protocol or ext in ("mhtml",):
             continue
 
-        existing = video_resolutions.get(height)
-        fps = float(fmt.get("fps") or 30.0)
-        tbr = float(fmt.get("tbr") or fmt.get("vbr") or 0.0)
+        if height not in by_height:
+            by_height[height] = []
+        by_height[height].append(fmt)
 
-        # Prefer MP4 over WebM for wider device compatibility, then higher bitrate/fps
-        is_preferred = False
-        if not existing:
-            is_preferred = True
-        else:
-            existing_ext = existing.get("ext", "")
-            existing_tbr = float(existing.get("tbr") or existing.get("vbr") or 0.0)
-            if existing_ext != "mp4" and ext == "mp4":
-                is_preferred = True
-            elif ext == existing_ext and tbr > existing_tbr:
-                is_preferred = True
-
-        if is_preferred:
-            video_resolutions[height] = fmt
+    # Check per-platform quality cap from registry
+    max_height_cap = 4320
+    if url:
+        try:
+            reg = get_platform_registry()
+            plat = reg.find_by_url(url)
+            if plat and plat.max_quality_expected:
+                cap_str = plat.max_quality_expected.lower()
+                if "720" in cap_str:
+                    max_height_cap = 720
+                elif "1080" in cap_str:
+                    max_height_cap = 1080
+                elif "4k" in cap_str or "2160" in cap_str:
+                    max_height_cap = 2160
+        except Exception:
+            pass
 
     format_options: List[FormatOption] = []
+    sorted_heights = sorted(by_height.keys(), reverse=True)
 
-    # 3. Build sorted video FormatOptions (descending height)
-    sorted_heights = sorted(video_resolutions.keys(), reverse=True)
-    for height in sorted_heights:
-        raw_fmt = video_resolutions[height]
-        v_id = raw_fmt.get("format_id", "")
-        fps = float(raw_fmt.get("fps") or 30.0)
-        acodec = raw_fmt.get("acodec", "none")
-        ext = raw_fmt.get("ext", "mp4")
+    # Filter by height cap
+    filtered_heights = [h for h in sorted_heights if h <= max_height_cap]
+    if not filtered_heights and sorted_heights:
+        filtered_heights = sorted_heights
 
-        # Label quality
-        if height >= 2160:
-            note = f"4K ({height}p)"
+    is_overall_best = True
+
+    for height in filtered_heights:
+        fmts_at_height = by_height[height]
+
+        # A. Find highest fidelity stream (Original Best)
+        def score_original(f: Dict[str, Any]) -> float:
+            score = float(f.get("tbr") or f.get("vbr") or 0.0)
+            fps = float(f.get("fps") or 30.0)
+            score += fps * 10
+            dyn = (f.get("dynamic_range") or "").upper()
+            if "HDR" in dyn:
+                score += 500
+            # Prefer modern codecs (AV1 > VP9 > H264)
+            vc = (f.get("vcodec") or "").lower()
+            if "av01" in vc:
+                score += 300
+            elif "vp09" in vc:
+                score += 150
+            return score
+
+        best_orig_fmt = max(fmts_at_height, key=score_original)
+
+        # B. Find best H.264/AVC stream for Compatible MP4
+        h264_fmts = [
+            f for f in fmts_at_height
+            if any(h in (f.get("vcodec") or "").lower() for h in ("avc1", "h264", "x264"))
+        ]
+        best_h264_fmt = max(h264_fmts, key=lambda f: float(f.get("tbr") or f.get("vbr") or 0.0)) if h264_fmts else None
+
+        # Build Original Best option
+        v_id = best_orig_fmt.get("format_id", "")
+        fps = float(best_orig_fmt.get("fps") or 30.0)
+        acodec = best_orig_fmt.get("acodec", "none") or "none"
+        vcodec = best_orig_fmt.get("vcodec", "")
+        orig_ext = best_orig_fmt.get("ext", "mp4")
+        dyn_range = (best_orig_fmt.get("dynamic_range") or "").upper()
+        is_hdr = "HDR" in dyn_range
+
+        # Quality label
+        if height >= 4320:
+            res_label = f"8K ({height}p)"
+        elif height >= 2160:
+            res_label = f"4K ({height}p)"
         elif height >= 1440:
-            note = f"2K ({height}p)"
+            res_label = f"2K ({height}p)"
         elif height >= 1080:
-            note = f"1080p (Full HD)"
+            res_label = "1080p (Full HD)"
         elif height >= 720:
-            note = f"720p (HD)"
+            res_label = "720p (HD)"
         elif height >= 480:
-            note = f"480p (SD)"
+            res_label = "480p (SD)"
         else:
-            note = f"{height}p"
+            res_label = f"{height}p"
 
+        tags = []
         if fps >= 50:
-            note = f"{note} {int(fps)}fps"
+            tags.append(f"{int(fps)}fps")
+        if is_hdr:
+            tags.append("HDR")
 
-        # Calculate estimated size
-        v_size = raw_fmt.get("filesize") or raw_fmt.get("filesize_approx")
+        tag_str = f" {' '.join(tags)}" if tags else ""
+
+        # Size calculation
+        v_size = best_orig_fmt.get("filesize") or best_orig_fmt.get("filesize_approx")
         if not v_size:
-            v_tbr = float(raw_fmt.get("tbr") or raw_fmt.get("vbr") or 0.0)
+            v_tbr = float(best_orig_fmt.get("tbr") or best_orig_fmt.get("vbr") or 0.0)
             if v_tbr and duration:
                 v_size = int((v_tbr * 125) * duration)
 
-        total_size = v_size
-        # If video has no audio, multiplex with best audio
+        total_orig_size = v_size
         if acodec == "none" and best_audio_id:
-            combined_format_id = f"{v_id}+{best_audio_id}"
+            combined_orig_id = f"{v_id}+{best_audio_id}"
             if v_size and best_audio_size:
-                total_size = v_size + best_audio_size
+                total_orig_size = v_size + best_audio_size
         else:
-            combined_format_id = v_id
+            combined_orig_id = v_id
 
+        # 1. Add Original Best option
         format_options.append(
             FormatOption(
-                format_id=combined_format_id,
+                format_id=combined_orig_id,
                 resolution=f"{height}p",
                 height=height,
                 fps=fps,
-                ext="mp4",  # Worker remuxes to mp4 for universal playback
-                format_note=note,
-                filesize_approx=total_size,
+                ext=orig_ext if orig_ext in ("mp4", "webm", "mkv") else "mp4",
+                format_note=f"{res_label}{tag_str} • Best Quality",
+                filesize_approx=total_orig_size,
                 is_audio_only=False,
-                abr=best_audio_abr if acodec == "none" else raw_fmt.get("abr"),
+                abr=best_audio_abr if acodec == "none" else best_orig_fmt.get("abr"),
+                vcodec=vcodec,
+                acodec=acodec if acodec != "none" else (best_audio.get("acodec") if best_audio else None),
+                is_hdr=is_hdr,
+                dynamic_range=dyn_range or "SDR",
+                tbr=float(best_orig_fmt.get("tbr") or best_orig_fmt.get("vbr") or 0.0),
+                mode="original",
+                is_best=is_overall_best,
             )
         )
+        is_overall_best = False
 
-    # 4. Add audio-only options
+        # 2. Add Compatible MP4 option (if different from original)
+        if best_h264_fmt and (best_h264_fmt.get("format_id") != best_orig_fmt.get("format_id") or orig_ext != "mp4"):
+            h264_id = best_h264_fmt.get("format_id", "")
+            h264_acodec = best_h264_fmt.get("acodec", "none") or "none"
+            h264_size = best_h264_fmt.get("filesize") or best_h264_fmt.get("filesize_approx")
+            if not h264_size:
+                h_tbr = float(best_h264_fmt.get("tbr") or best_h264_fmt.get("vbr") or 0.0)
+                if h_tbr and duration:
+                    h264_size = int((h_tbr * 125) * duration)
+
+            total_h264_size = h264_size
+            if h264_acodec == "none" and aac_audio_id:
+                combined_h264_id = f"{h264_id}+{aac_audio_id}"
+                if h264_size and aac_audio_size:
+                    total_h264_size = h264_size + aac_audio_size
+            else:
+                combined_h264_id = h264_id
+
+            format_options.append(
+                FormatOption(
+                    format_id=combined_h264_id,
+                    resolution=f"{height}p",
+                    height=height,
+                    fps=fps,
+                    ext="mp4",
+                    format_note=f"{res_label} • Compatible MP4 (H.264)",
+                    filesize_approx=total_h264_size,
+                    is_audio_only=False,
+                    abr=best_aac_abr if h264_acodec == "none" else best_h264_fmt.get("abr"),
+                    vcodec="h264",
+                    acodec="aac",
+                    is_hdr=False,
+                    dynamic_range="SDR",
+                    tbr=float(best_h264_fmt.get("tbr") or best_h264_fmt.get("vbr") or 0.0),
+                    mode="compatible_mp4",
+                    is_best=False,
+                )
+            )
+
+    # 4. Add Audio-Only options
     if best_audio:
-        # M4A Audio
+        # Best Original Audio (M4A or Opus)
+        best_audio_ext = best_audio.get("ext", "m4a")
         format_options.append(
             FormatOption(
                 format_id=best_audio.get("format_id", "bestaudio"),
                 resolution=None,
                 height=None,
                 fps=None,
-                ext="m4a",
-                format_note=f"Audio Only ({int(best_audio_abr)} kbps M4A)" if best_audio_abr else "Audio Only (M4A)",
+                ext=best_audio_ext,
+                format_note=f"Audio Only ({int(best_audio_abr)} kbps {best_audio_ext.upper()})" if best_audio_abr else f"Audio Only ({best_audio_ext.upper()})",
                 filesize_approx=best_audio_size,
                 is_audio_only=True,
                 abr=best_audio_abr,
+                acodec=best_audio.get("acodec"),
+                mode="original",
             )
         )
-        # MP3 Audio
+
+        # Universal MP3 (High Quality 320kbps)
+        format_options.append(
+            FormatOption(
+                format_id=f"{best_audio.get('format_id', 'bestaudio')}+mp3_320",
+                resolution=None,
+                height=None,
+                fps=None,
+                ext="mp3",
+                format_note="Audio Only (MP3 320 kbps High Quality)",
+                filesize_approx=best_audio_size,
+                is_audio_only=True,
+                abr=320.0,
+                acodec="mp3",
+                mode="compatible_mp4",
+            )
+        )
+
+        # Universal MP3 (Standard 192kbps)
         format_options.append(
             FormatOption(
                 format_id=f"{best_audio.get('format_id', 'bestaudio')}+mp3",
@@ -259,10 +450,12 @@ def normalize_formats(formats: List[Dict[str, Any]], duration: int) -> List[Form
                 height=None,
                 fps=None,
                 ext="mp3",
-                format_note=f"Audio Only (MP3 High Quality)",
+                format_note="Audio Only (MP3 Standard Quality)",
                 filesize_approx=best_audio_size,
                 is_audio_only=True,
-                abr=best_audio_abr,
+                abr=192.0,
+                acodec="mp3",
+                mode="compatible_mp4",
             )
         )
 
@@ -273,16 +466,6 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
     """
     Synchronously extracts media metadata using yt-dlp in Python library mode.
     Caches successful extractions for CACHE_TTL_SECONDS and errors for CACHE_ERROR_TTL_SECONDS.
-
-    Args:
-        url: Validated, SSRF-checked public media URL.
-        bypass_cache: Set True to force fresh upstream extraction.
-
-    Returns:
-        MediaInfoResponse containing clean title, thumbnail, duration, and format options.
-
-    Raises:
-        AppError: Mapped user-safe domain exception.
     """
     canonical_url, _ = normalize_video_url(url)
     url_hash = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
@@ -363,9 +546,21 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
     if not thumbnail_url and thumbnails:
         thumbnail_url = thumbnails[-1].get("url", "")
 
+    # Match platform from registry
+    platform_id = None
+    platform_tier = None
+    try:
+        reg = get_platform_registry()
+        matched_plat = reg.find_by_url(url)
+        if matched_plat:
+            platform_id = matched_plat.id
+            platform_tier = matched_plat.tier
+    except Exception:
+        pass
+
     # Clean formats
     raw_formats = info_dict.get("formats") or []
-    clean_formats = normalize_formats(raw_formats, duration)
+    clean_formats = normalize_formats(raw_formats, duration, url=url)
 
     result = MediaInfoResponse(
         id=str(info_dict.get("id") or "media"),
@@ -376,6 +571,9 @@ def extract_media_info(url: str, bypass_cache: bool = False) -> MediaInfoRespons
         uploader=info_dict.get("uploader") or info_dict.get("channel"),
         is_live=bool(info_dict.get("is_live")),
         formats=clean_formats,
+        platform_id=platform_id,
+        platform_tier=platform_tier,
+        extractor_key=info_dict.get("extractor_key"),
     )
 
     # Store successful extraction in Redis
