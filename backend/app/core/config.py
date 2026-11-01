@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # Rate Limiting & Abuse Prevention
     GLOBAL_CONCURRENCY_CAP: int = 20
-    MAX_CONCURRENT_JOBS_PER_IP: int = 2
+    MAX_CONCURRENT_JOBS_PER_IP: int = 5
     RATE_LIMIT_EXTRACT_PER_MINUTE: int = 15
     RATE_LIMIT_JOB_PER_MINUTE: int = 5
     CLOUDFLARE_TURNSTILE_SECRET_KEY: str = ""

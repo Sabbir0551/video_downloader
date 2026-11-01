@@ -127,6 +127,11 @@ def download_media_task(
         nonlocal last_update_time
         now = time.time()
 
+        # Check if job was cancelled by user
+        if redis_client and redis_client.get(f"job:{job_id}:cancelled"):
+            logger.info("Job [%s] cancellation flag detected in progress hook. Aborting immediately.", job_id)
+            raise DownloadError(f"Job {job_id} cancelled by user.")
+
         # Enforce hard byte limit while downloading
         downloaded = d.get("downloaded_bytes", 0)
         if downloaded > settings.MAX_FILE_SIZE_BYTES:

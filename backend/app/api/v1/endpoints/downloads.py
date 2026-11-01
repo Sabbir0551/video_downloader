@@ -654,8 +654,13 @@ async def cancel_download_job(
             message="Unauthorized to cancel this job: missing or invalid job access token.",
         )
 
-    # Revoke Celery task if queued/processing
+    # Signal cancellation in Redis and revoke Celery task if queued/processing
     if job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
+        if redis_client:
+            try:
+                redis_client.setex(f"job:{job_id}:cancelled", 3600, "1")
+            except Exception:
+                pass
         try:
             celery_app.control.revoke(str(job_id), terminate=True, signal="SIGTERM")
         except Exception:

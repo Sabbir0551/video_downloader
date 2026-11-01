@@ -110,7 +110,7 @@ def get_ydl_options() -> Dict[str, Any]:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
-        "socket_timeout": 15,
+        "socket_timeout": 30,
         "retries": 3,
         "noplaylist": True,
         "no_color": True,
@@ -147,7 +147,11 @@ def map_ytdlp_error(err: Exception) -> AppError:
         return UnsupportedUrlError("This URL or media host is not currently supported.")
 
     if "timed out" in err_lower or "timeout" in err_lower or "connection refused" in err_lower:
-        return UnsupportedUrlError("Connection to the media host timed out. Please try again.")
+        return AppError(
+            status_code=504,
+            error_code="UPSTREAM_TIMEOUT",
+            message="Connection to the media host timed out. Please try again.",
+        )
 
     if "s3" in err_lower or "botocore" in err_lower or "boto3" in err_lower or "bucket" in err_lower:
         return AppError(
@@ -223,7 +227,7 @@ def normalize_formats(
     if not best_audio:
         for fmt in formats:
             acodec = fmt.get("acodec", "none") or "none"
-            if acodec != "none":
+            if acodec != "none" or fmt.get("height"):
                 best_audio = fmt
                 best_audio_abr = float(fmt.get("abr") or fmt.get("tbr") or 192.0)
                 best_audio_id = fmt.get("format_id")
@@ -241,8 +245,8 @@ def normalize_formats(
         vcodec = fmt.get("vcodec", "none") or "none"
         ext = fmt.get("ext", "mp4")
 
-        # Ignore audio-only
-        if vcodec == "none":
+        # Ignore true audio-only
+        if vcodec == "none" and not height:
             continue
 
         if not height or height < 144:
@@ -308,9 +312,9 @@ def normalize_formats(
         # B. Find best H.264/AVC stream for Compatible MP4
         h264_fmts = [
             f for f in fmts_at_height
-            if any(h in (f.get("vcodec") or "").lower() for h in ("avc1", "h264", "x264"))
+            if any(h in (f.get("vcodec") or "").lower() for h in ("avc1", "h264", "x264")) or f.get("ext") == "mp4"
         ]
-        best_h264_fmt = max(h264_fmts, key=lambda f: float(f.get("tbr") or f.get("vbr") or 0.0)) if h264_fmts else None
+        best_h264_fmt = max(h264_fmts, key=lambda f: float(f.get("tbr") or f.get("vbr") or 0.0)) if h264_fmts else best_orig_fmt
 
         # Build Original Best option
         v_id = best_orig_fmt.get("format_id", "")
@@ -352,8 +356,11 @@ def normalize_formats(
             if v_tbr and duration:
                 v_size = int((v_tbr * 125) * duration)
 
+        # Check if best_audio is a dedicated audio-only stream (no video/height)
+        is_true_audio_stream = bool(best_audio and (best_audio.get("vcodec") == "none" and not best_audio.get("height")))
+
         total_orig_size = v_size
-        if acodec == "none" and best_audio_id:
+        if acodec == "none" and best_audio_id and is_true_audio_stream:
             combined_orig_id = f"{v_id}+{best_audio_id}"
             if v_size and best_audio_size:
                 total_orig_size = v_size + best_audio_size
@@ -394,7 +401,7 @@ def normalize_formats(
                     h264_size = int((h_tbr * 125) * duration)
 
             total_h264_size = h264_size
-            if h264_acodec == "none" and aac_audio_id:
+            if h264_acodec == "none" and aac_audio_id and is_true_audio_stream:
                 combined_h264_id = f"{h264_id}+{aac_audio_id}"
                 if h264_size and aac_audio_size:
                     total_h264_size = h264_size + aac_audio_size
@@ -426,6 +433,8 @@ def normalize_formats(
     if best_audio:
         # Best Original Audio (M4A or Opus)
         best_audio_ext = best_audio.get("ext", "m4a")
+        if best_audio_ext in ("mp4", "webm", "mkv", "mov"):
+            best_audio_ext = "m4a"
         format_options.append(
             FormatOption(
                 format_id=best_audio.get("format_id", "bestaudio"),

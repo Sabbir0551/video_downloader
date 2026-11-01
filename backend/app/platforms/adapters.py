@@ -418,6 +418,24 @@ class TumblrAdapter(BasePlatformAdapter):
         return fetch_and_resolve_page_media(url)
 
 
+class VKAdapter(BasePlatformAdapter):
+    """
+    Adapter for VK Video and VKontakte clips.
+    Configures extended socket timeouts and retries for multi-manifest streams.
+    """
+    platform_id = "vk"
+
+    def get_ydl_options(self, url: str) -> Dict[str, Any]:
+        return {
+            "socket_timeout": 35,
+            "retries": 5,
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Referer": "https://vkvideo.ru/",
+            },
+        }
+
+
 def hashlib_id(text: str) -> str:
     import hashlib
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
@@ -434,6 +452,7 @@ ADAPTER_MAP: Dict[str, BasePlatformAdapter] = {
     "xiaohongshu": XiaohongshuAdapter(),
     "substack": SubstackAdapter(),
     "tumblr": TumblrAdapter(),
+    "vk": VKAdapter(),
     "discord": DirectEmbedAdapter(),
     "github": DirectEmbedAdapter(),
     "gitlab": DirectEmbedAdapter(),
